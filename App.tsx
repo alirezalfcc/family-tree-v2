@@ -21,7 +21,7 @@ import {
 import { exportToSVG } from './utils/svgExporter';
 
 // نسخه برنامه جهت اطمینان از آپدیت بودن بیلد
-const APP_VERSION = "v2.3";
+const APP_VERSION = "v2.4";
 
 const App: React.FC = () => {
   // State for Tabs
@@ -118,26 +118,25 @@ const App: React.FC = () => {
           
           const response = await fetch(`/api/proxy?path=${encodeURIComponent(path)}`, options);
           
+          // مدیریت خطای 404: 
+          // 1. اگر HTML برگشت یعنی خود فایل پروکسی پیدا نشده.
+          // 2. اگر JSON برگشت یعنی پروکسی اجرا شده اما فایربیس پیدا نشده.
           if (response.status === 404) {
-             throw new Error("API_NOT_FOUND");
+             const contentType = response.headers.get("content-type");
+             if (contentType && contentType.includes("application/json")) {
+                 const err = await response.json();
+                 throw new Error(err.detail || "Firebase Not Found");
+             }
+             // اگر HTML است، یعنی مسیر پروکسی غلط است
+             throw new Error("PROXY_NOT_FOUND");
           }
 
           if (!response.ok) {
-              // تلاش برای خواندن متن خطا
               let errorMsg = `API Error: ${response.status}`;
               try {
-                  const contentType = response.headers.get("content-type");
-                  if (contentType && contentType.indexOf("application/json") !== -1) {
-                      const errJson = await response.json();
-                      if (errJson.detail) errorMsg = errJson.detail;
-                      else if (errJson.error) errorMsg = errJson.error;
-                  } else {
-                      // اگر HTML برگشت یعنی احتمالا صفحه 404 پیش‌فرض است
-                      const text = await response.text();
-                      if (text.includes("<!DOCTYPE html>")) {
-                          throw new Error("API_NOT_FOUND");
-                      }
-                  }
+                  const errJson = await response.json();
+                  if (errJson.detail) errorMsg = errJson.detail;
+                  else if (errJson.error) errorMsg = errJson.error;
               } catch(e) {}
               throw new Error(errorMsg);
           }
@@ -208,15 +207,16 @@ const App: React.FC = () => {
           setIsOfflineMode(true);
           
           let reason = error.message;
-          if (error.message.includes("Missing FIREBASE") || error.message.includes("Server Configuration Error")) {
-              reason = "تنظیمات کلادفلر (Environment Variables) انجام نشده است.";
-          } else if (error.message === "API_NOT_FOUND" || error.message.includes("404")) {
-              // پیام دقیق‌تر برای کاربر
-              reason = "فایل‌های سرور (پوشه functions) در کلادفلر پیدا نشد. لطفا مطمئن شوید فایل functions/api/proxy.js در گیت وجود دارد.";
-          } else if (error.message.includes("401") || error.message.includes("permission_denied") || error.message.includes("Unauthorized")) {
-              reason = "رمز دیتابیس (Secret) اشتباه است یا دسترسی مسدود شده است.";
+          if (error.message.includes("MISSING_ENV")) {
+              reason = "تنظیمات Environment Variables در کلادفلر ناقص است (Secret یا ID).";
+          } else if (error.message === "PROXY_NOT_FOUND") {
+              reason = "فایل functions/api/proxy.js هنوز در سرور شناسایی نشده (صبر کنید یا دوباره Deploy کنید).";
+          } else if (error.message.includes("Database Not Found") || error.message.includes("404")) {
+              reason = "فایربیس پیدا نشد. لطفا متغیر FIREBASE_DB_URL را در کلادفلر تنظیم کنید.";
+          } else if (error.message.includes("Unauthorized") || error.message.includes("401")) {
+              reason = "رمز دیتابیس (Secret) اشتباه است.";
           } else if (error.message.includes("Failed to fetch")) {
-              reason = "خطای شبکه یا DNS. (آیا روی Localhost هستید؟)";
+              reason = "خطای شبکه یا DNS.";
           }
           setOfflineReason(reason);
 
@@ -242,7 +242,7 @@ const App: React.FC = () => {
         .then(() => setTimeout(() => setIsSaving(false), 500))
         .catch((err) => {
           setIsSaving(false);
-          if (err.message === "API_NOT_FOUND") {
+          if (err.message === "PROXY_NOT_FOUND") {
              console.info("Cloud save failed, offline mode.");
              setIsOfflineMode(true);
           } else {
