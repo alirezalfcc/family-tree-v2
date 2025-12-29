@@ -21,7 +21,7 @@ import {
 import { exportToSVG } from './utils/svgExporter';
 
 // نسخه برنامه جهت اطمینان از آپدیت بودن بیلد
-const APP_VERSION = "v2.1";
+const APP_VERSION = "v2.3";
 
 const App: React.FC = () => {
   // State for Tabs
@@ -123,11 +123,21 @@ const App: React.FC = () => {
           }
 
           if (!response.ok) {
+              // تلاش برای خواندن متن خطا
               let errorMsg = `API Error: ${response.status}`;
               try {
-                  const errJson = await response.json();
-                  if (errJson.detail) errorMsg = errJson.detail;
-                  else if (errJson.error) errorMsg = errJson.error;
+                  const contentType = response.headers.get("content-type");
+                  if (contentType && contentType.indexOf("application/json") !== -1) {
+                      const errJson = await response.json();
+                      if (errJson.detail) errorMsg = errJson.detail;
+                      else if (errJson.error) errorMsg = errJson.error;
+                  } else {
+                      // اگر HTML برگشت یعنی احتمالا صفحه 404 پیش‌فرض است
+                      const text = await response.text();
+                      if (text.includes("<!DOCTYPE html>")) {
+                          throw new Error("API_NOT_FOUND");
+                      }
+                  }
               } catch(e) {}
               throw new Error(errorMsg);
           }
@@ -201,11 +211,12 @@ const App: React.FC = () => {
           if (error.message.includes("Missing FIREBASE") || error.message.includes("Server Configuration Error")) {
               reason = "تنظیمات کلادفلر (Environment Variables) انجام نشده است.";
           } else if (error.message === "API_NOT_FOUND" || error.message.includes("404")) {
-              reason = "فایل‌های سرور (API) پیدا نشد. لطفا سایت را Redeploy کنید.";
+              // پیام دقیق‌تر برای کاربر
+              reason = "فایل‌های سرور (پوشه functions) در کلادفلر پیدا نشد. لطفا مطمئن شوید فایل functions/api/proxy.js در گیت وجود دارد.";
           } else if (error.message.includes("401") || error.message.includes("permission_denied") || error.message.includes("Unauthorized")) {
               reason = "رمز دیتابیس (Secret) اشتباه است یا دسترسی مسدود شده است.";
           } else if (error.message.includes("Failed to fetch")) {
-              reason = "خطای شبکه یا DNS. (آیا Project ID صحیح است؟)";
+              reason = "خطای شبکه یا DNS. (آیا روی Localhost هستید؟)";
           }
           setOfflineReason(reason);
 

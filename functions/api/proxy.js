@@ -5,7 +5,6 @@ export async function onRequest(context) {
   const FIREBASE_SECRET = context.env.FIREBASE_DB_SECRET; 
 
   // اگر کاربر آدرس کامل دیتابیس را داده بود (برای ریجن‌های غیر آمریکا)
-  // مثلا: https://my-project.europe-west1.firebasedatabase.app
   let dbUrl = context.env.FIREBASE_DB_URL;
 
   if (!dbUrl) {
