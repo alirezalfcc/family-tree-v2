@@ -1,0 +1,63 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[#f8f5f2] m-0 overflow-hidden font-sans;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Cursor Helpers */
+.grab-cursor {
+  cursor: grab;
+}
+.grab-cursor:active {
+  cursor: grabbing;
+}
+
+/* Animations */
+@keyframes pulse-focus {
+  0% { outline: 0px solid rgba(217, 119, 6, 0); }
+  50% { outline: 8px solid rgba(217, 119, 6, 0.3); }
+  100% { outline: 0px solid rgba(217, 119, 6, 0); }
+}
+.focused-node {
+  animation: pulse-focus 2s infinite;
+  border-radius: 1rem;
+}
+
+@keyframes marquee {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.animate-marquee {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee 80s linear infinite;
+}
