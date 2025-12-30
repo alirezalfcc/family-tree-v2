@@ -170,9 +170,17 @@ const AuthModal: React.FC<AuthModalProps> = ({
 
   const handleRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
-      if (!file || !onRestore) return;
+      if (!file) return;
       
-      if (!window.confirm("هشدار: تمام اطلاعات دیتابیس فعلی پاک شده و با فایل جدید جایگزین می‌شود. آیا مطمئن هستید؟")) return;
+      // Reset input value to allow selecting the same file again if needed
+      e.target.value = '';
+
+      if (!onRestore) {
+          alert("تابع بازگردانی تعریف نشده است.");
+          return;
+      }
+      
+      if (!window.confirm("هشدار جدی: \nتمام اطلاعات دیتابیس فعلی پاک شده و با فایل جدید جایگزین می‌شود. \nآیا کاملاً مطمئن هستید؟")) return;
 
       const reader = new FileReader();
       reader.onload = async (ev) => {
@@ -183,7 +191,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
               alert("بازیابی با موفقیت انجام شد. صفحه رفرش می‌شود.");
               window.location.reload();
           } catch (err: any) {
-              alert("Restore Failed: " + err.message);
+              alert("خطا در بازیابی: " + err.message);
               setIsLoading(false);
           }
       };
