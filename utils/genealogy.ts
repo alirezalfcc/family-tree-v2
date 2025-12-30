@@ -10,6 +10,20 @@ export interface ExtendedPerson extends Person {
 }
 
 /**
+ * جستجوی یک نود در درخت بر اساس ID
+ */
+export const findNodeById = (root: Person, id: string): Person | null => {
+  if (root.id === id) return root;
+  if (root.children) {
+    for (const child of root.children) {
+      const found = findNodeById(child, id);
+      if (found) return found;
+    }
+  }
+  return null;
+};
+
+/**
  * محاسبه سن بر اساس تاریخ شمسی
  */
 export const calculatePersianAge = (birthDate?: string, deathDate?: string, status?: string[]): string | null => {
@@ -57,7 +71,6 @@ export const getDerivedGender = (p: Person): 'male' | 'female' => {
 };
 
 // تابع کمکی برای یافتن شخص بر اساس نام (جستجوی فازی)
-// برای اتصال همسرانی که فقط نامشان ثبت شده به نود اصلی در درخت
 const findPersonByName = (name: string | undefined, allMembers: ExtendedPerson[]): ExtendedPerson | undefined => {
     if (!name || name.trim().length < 2) return undefined;
     const cleanName = name.trim();
@@ -119,24 +132,61 @@ const calculateDirectPath = (p1: ExtendedPerson, p2: ExtendedPerson, allMembers:
     const p2IsFemale = getDerivedGender(p2) === 'female';
     let relationshipString = "";
 
-    // --- Logic for Strings ---
-    if (dist1 === 0) {
-        if (dist2 === 1) relationshipString = p2IsFemale ? "دختر" : "پسر";
-        else if (dist2 === 2) relationshipString = "نوه";
-        else if (dist2 > 2) relationshipString = `نوه (نتیجه - نسل ${dist2}م)`;
-    } else if (dist2 === 0) {
-        if (dist1 === 1) relationshipString = p2IsFemale ? "مادر" : "پدر";
-        else if (dist1 === 2) relationshipString = p2IsFemale ? "مادربزرگ" : "پدربزرگ";
-        else if (dist1 > 2) relationshipString = `جد (${dist1} نسل قبل)`;
-    } else if (dist1 === 1 && dist2 === 1) {
-        relationshipString = p2IsFemale ? "خواهر" : "برادر";
-    } else if (dist1 === 2 && dist2 === 1) {
-        // عمو/عمه/دایی/خاله
+    // --- اولویت با نسبت‌های نزدیک و اصلی ---
+
+    // 1. فرزند / والد
+    if (dist1 === 0 && dist2 === 1) return { label: p2IsFemale ? "دختر" : "پسر", distance: 1 };
+    if (dist1 === 1 && dist2 === 0) return { label: p2IsFemale ? "مادر" : "پدر", distance: 1 };
+
+    // 2. خواهر / برادر
+    if (dist1 === 1 && dist2 === 1) return { label: p2IsFemale ? "خواهر" : "برادر", distance: 2 };
+
+    // 3. نوه / پدربزرگ و مادربزرگ
+    if (dist1 === 0 && dist2 === 2) return { label: p2IsFemale ? "نوه (دختری/پسری)" : "نوه (دختری/پسری)", distance: 2 };
+    if (dist1 === 2 && dist2 === 0) return { label: p2IsFemale ? "مادربزرگ" : "پدربزرگ", distance: 2 };
+
+    // 4. عمو / عمه / دایی / خاله
+    if (dist1 === 2 && dist2 === 1) {
         const p1Parent = path1[1];
         const p1ParentGender = getDerivedGender(p1Parent);
-        if (p1ParentGender === 'male') relationshipString = p2IsFemale ? "عمه" : "عمو";
-        else relationshipString = p2IsFemale ? "خاله" : "دایی";
-    } else {
+        // اگر والدِ P1 مرد باشد (پدر) -> برادر پدر (عمو) / خواهر پدر (عمه)
+        // اگر والدِ P1 زن باشد (مادر) -> برادر مادر (دایی) / خواهر مادر (خاله)
+        if (p1ParentGender === 'male') return { label: p2IsFemale ? "عمه" : "عمو", distance: 3 };
+        else return { label: p2IsFemale ? "خاله" : "دایی", distance: 3 };
+    }
+
+    // 5. برادرزاده / خواهرزاده
+    if (dist1 === 1 && dist2 === 2) {
+        const p2Parent = path2[1]; // والدِ P2 که خواهر/برادر P1 است
+        const p2ParentGender = getDerivedGender(p2Parent);
+        if (p2ParentGender === 'male') return { label: p2IsFemale ? "برادرزاده (دختر)" : "برادرزاده (پسر)", distance: 3 };
+        else return { label: p2IsFemale ? "خواهرزاده (دختر)" : "خواهرزاده (پسر)", distance: 3 };
+    }
+
+    // 6. دخترعمو/پسرعمو/دخترخاله/پسرخاله و ... (First Cousins)
+    if (dist1 === 2 && dist2 === 2) {
+        const p1Parent = path1[1];
+        const p2Parent = path2[1];
+        const p1ParentGender = getDerivedGender(p1Parent);
+        const p2ParentGender = getDerivedGender(p2Parent);
+        
+        const childTitle = p2IsFemale ? "دختر" : "پسر";
+        
+        if (p1ParentGender === 'male') { 
+             // سمت پدری
+             if (p2ParentGender === 'male') return { label: `${childTitle} عمو`, distance: 4 };
+             else return { label: `${childTitle} عمه`, distance: 4 };
+        } else { 
+             // سمت مادری
+             if (p2ParentGender === 'male') return { label: `${childTitle} دایی`, distance: 4 };
+             else return { label: `${childTitle} خاله`, distance: 4 };
+        }
+    }
+
+    // --- محاسبات دورتر ---
+    if (dist1 === 0 && dist2 > 2) relationshipString = `نوه (نتیجه - نسل ${dist2}م)`;
+    else if (dist2 === 0 && dist1 > 2) relationshipString = `جد (${dist1} نسل قبل)`;
+    else {
         // Generic recursive naming
         for (let i = 0; i < dist2 - 1; i++) {
             const currentPerson = path2[i];
@@ -174,20 +224,38 @@ const calculateDirectPath = (p1: ExtendedPerson, p2: ExtendedPerson, allMembers:
 
 /**
  * الگوریتم پیشرفته محاسبه نسبت فامیلی فارسی
- * با قابلیت بررسی مسیرهای همسران (مادر، همسر دوم و...)
+ * با قابلیت بررسی همسران و مسیرهای اصلی
  */
 export const findRelationship = (p1: ExtendedPerson, p2: ExtendedPerson, allMembers: ExtendedPerson[]): string => {
     if (p1.id === p2.id) return "این خود شخص است!";
+
+    // 0. بررسی مستقیم همسری (اولویت اول)
+    if (p1.spouseId === p2.id || p2.spouseId === p1.id || (p1.secondSpouseId && p1.secondSpouseId === p2.id) || (p2.secondSpouseId && p2.secondSpouseId === p1.id)) {
+        return "همسر";
+    }
+    // اگر ID ست نشده بود، چک کردن نام
+    const normalize = (s?: string) => s?.trim().toLowerCase();
+    if (p1.spouseName && (normalize(p1.spouseName) === normalize(p2.name) || normalize(p1.spouseName) === normalize(getFullIdentityLabel(p2)))) return "همسر";
+    if (p2.spouseName && (normalize(p2.spouseName) === normalize(p1.name) || normalize(p2.spouseName) === normalize(getFullIdentityLabel(p1)))) return "همسر";
+
 
     const results: string[] = [];
 
     // 1. محاسبه مسیر مستقیم (ساختاری/پدری)
     const directResult = calculateDirectPath(p1, p2, allMembers);
     if (directResult) {
-        results.push(`از طرف پدر: ${directResult.label}`);
+        // حذف پیشوند و افزودن نتیجه مستقیم
+        results.push(directResult.label);
+        
+        // اصلاح مهم: اگر نسبت مستقیم و نزدیک (فاصله کم) پیدا شد، همان را برگردان و مسیرهای پیچیده مادری/همسری را چک نکن.
+        // فاصله 4 شامل فرزند، والد، خواهر/برادر، نوه، پدربزرگ/مادربزرگ، عمو/عمه/دایی/خاله و فرزندانشان است.
+        if (directResult.distance <= 4) {
+            return directResult.label;
+        }
     }
 
     // 2. محاسبه مسیرهای غیرمستقیم از طریق همسران والد (مادر، نامادری و...)
+    // فقط اگر نتیجه مستقیم خیلی دور بود یا پیدا نشد، این بخش اجرا شود
     if (p1.parentId) {
         const structuralParent = allMembers.find(m => m.id === p1.parentId);
         if (structuralParent) {
@@ -202,37 +270,40 @@ export const findRelationship = (p1: ExtendedPerson, p2: ExtendedPerson, allMemb
                     // یافتن نود همسر در درخت
                     const spouseNode = findPersonByName(spouseInfo.name, allMembers);
                     if (spouseNode) {
+                        // اگر خود همسر والد، شخص دوم باشد
+                        if (spouseNode.id === p2.id) {
+                             results.push("مادر (همسر پدر)");
+                             return;
+                        }
+
                         // محاسبه نسبت بین همسر والد و نفر دوم
                         const spouseResult = calculateDirectPath(spouseNode, p2, allMembers);
                         
                         if (spouseResult) {
+                            // اگر نتیجه محاسبات مادری هم خیلی دور بود، نادیده بگیر تا گیج کننده نشود
+                            if (spouseResult.distance > 5) return;
+
                             // تبدیل نسبت: اگر P2 نسبت X با مادر P1 دارد، چه نسبتی با P1 دارد؟
-                            // ما اینجا از لیبل تولید شده استفاده می‌کنیم و آن را در کانتکست قرار می‌دهیم
-                            // اما دقیق‌تر این است که فاصله را در نظر بگیریم.
-                            
-                            // فاصله واقعی از P1 تا P2 از این مسیر = فاصله(Mother, P2) + 1 (P1->Mother)
-                            const totalDistance = spouseResult.distance + 1;
-                            
-                            // اگر P2 برادر/خواهر همسر باشد -> دایی/خاله P1
                             let relationLabel = spouseResult.label;
                             
-                            // منطق ساده‌سازی شده برای نمایش فارسی
-                            // اگر نتیجه مستقیم هم وجود دارد و این مسیر دورتر است، شاید نخواهیم نمایش دهیم
-                            // اما کاربر خواسته که "برادر همسر دوم" (دایی) نمایش داده شود.
-                            
-                            // اصلاح لیبل برای فرزند:
-                            // اگر رابطه با مادر "برادر" است -> برای فرزند می‌شود "دایی"
-                            // اگر رابطه با مادر "خواهر" است -> برای فرزند می‌شود "خاله"
-                            // اگر رابطه با مادر "پدر" است -> برای فرزند می‌شود "پدربزرگ مادری"
-                            
+                            // تبدیل‌های خاص مادری
                             let adjustedLabel = relationLabel;
                             if (relationLabel === 'برادر') adjustedLabel = 'دایی';
                             else if (relationLabel === 'خواهر') adjustedLabel = 'خاله';
                             else if (relationLabel === 'پدر') adjustedLabel = 'پدربزرگ (مادری)';
                             else if (relationLabel === 'مادر') adjustedLabel = 'مادربزرگ (مادری)';
                             
+                            // اگر P2 فرزند دایی/خاله باشد (پسر دایی/دختر دایی...)
+                            else if (relationLabel.includes('دایی') || relationLabel.includes('خاله') || relationLabel.includes('عمو') || relationLabel.includes('عمه')) {
+                                if (relationLabel.includes('برادرزاده')) {
+                                    adjustedLabel = relationLabel.replace('برادرزاده', '').trim() + ' دایی';
+                                } else if (relationLabel.includes('خواهرزاده')) {
+                                    adjustedLabel = relationLabel.replace('خواهرزاده', '').trim() + ' خاله';
+                                }
+                            }
+
                             // تشخیص اینکه کدام مادر است (نامش را در پرانتز می‌آوریم)
-                            const sourceLabel = `از طرف ${spouseInfo.name}`;
+                            const sourceLabel = `از طرف مادر (${spouseInfo.name})`;
                             results.push(`${sourceLabel}: ${adjustedLabel}`);
                         }
                     }
@@ -354,18 +425,7 @@ export const removePersonFromTree = (node: Person, targetId: string): Person | n
 };
 
 export const movePersonInTree = (root: Person, parentId: string, childId: string): Person => {
-  const findNode = (node: Person, id: string): Person | null => {
-    if (node.id === id) return node;
-    if (node.children) {
-      for (const c of node.children) {
-        const found = findNode(c, id);
-        if (found) return found;
-      }
-    }
-    return null;
-  };
-
-  const nodeToMove = findNode(root, childId);
+  const nodeToMove = findNodeById(root, childId);
   if (!nodeToMove) return root;
 
   const isDescendant = (node: Person, targetId: string): boolean => {

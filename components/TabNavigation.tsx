@@ -12,6 +12,9 @@ interface TabNavigationProps {
   onTogglePrivacy: (id: string) => void;
   isAuthenticated: boolean;
   currentUser?: { username: string; role: 'admin' | 'user' } | null;
+  usersList?: any[];
+  onTransferTab?: (tabId: string, newOwner: string) => void;
+  onCopyTab?: (tabId: string, targetUser: string) => void;
 }
 
 const TabNavigation: React.FC<TabNavigationProps> = ({
@@ -23,7 +26,10 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
   onDeleteTab,
   onTogglePrivacy,
   isAuthenticated,
-  currentUser
+  currentUser,
+  usersList = [],
+  onTransferTab,
+  onCopyTab
 }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [newTabTitle, setNewTabTitle] = useState('');
@@ -32,8 +38,13 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
 
-  // New state for custom delete confirmation
+  // Delete confirmation
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // Management Modal (Transfer/Copy)
+  const [manageTabId, setManageTabId] = useState<string | null>(null);
+  const [transferTarget, setTransferTarget] = useState('');
+  const [copyTarget, setCopyTarget] = useState('');
 
   const handleAdd = () => {
     if (newTabTitle.trim()) {
@@ -50,12 +61,19 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
     }
   };
 
+  const openManageModal = (tab: FamilyTab) => {
+      setManageTabId(tab.id);
+      setTransferTarget(tab.owner || 'admin');
+      setCopyTarget(tab.owner || 'admin');
+  };
+
   return (
     <>
       <div className="flex items-center gap-2 px-4 py-2 overflow-x-auto no-scrollbar border-b border-slate-200/50 bg-white/50 backdrop-blur-sm">
         {tabs.map(tab => {
           // Can edit if admin OR if owner matches
           const canEdit = isAuthenticated && (currentUser?.role === 'admin' || currentUser?.username === tab.owner);
+          const isAdmin = currentUser?.role === 'admin';
 
           return (
             <div 
@@ -100,6 +118,17 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
 
               {canEdit && activeTabId === tab.id && (
                 <div className="flex gap-1 mr-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {/* Admin Management Button */}
+                  {isAdmin && (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); openManageModal(tab); }}
+                        className="p-1 hover:bg-black/20 rounded text-white"
+                        title="مدیریت (انتقال/کپی)"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                      </button>
+                  )}
+
                   {/* Toggle Visibility */}
                   <button 
                     onClick={(e) => { e.stopPropagation(); onTogglePrivacy(tab.id); }}
@@ -123,7 +152,6 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
                       onMouseDown={(e) => e.stopPropagation()} 
                       onClick={(e) => { 
                           e.stopPropagation();
-                          // Open custom modal instead of window.confirm
                           setConfirmDeleteId(tab.id);
                       }}
                       className="p-1 hover:bg-red-500 rounded text-white z-20 cursor-pointer"
@@ -173,7 +201,76 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
         )}
       </div>
 
-      {/* Custom Confirmation Modal */}
+      {/* Management Modal */}
+      {manageTabId && (
+          <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setManageTabId(null)}>
+              <div className="bg-white p-6 rounded-3xl shadow-2xl border border-slate-100 max-w-sm w-full animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                  <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-2">
+                      <h3 className="font-black text-slate-800 text-lg">مدیریت مالکیت</h3>
+                      <button onClick={() => setManageTabId(null)} className="text-slate-400 hover:text-slate-600"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                  </div>
+                  
+                  {/* Transfer Section */}
+                  <div className="mb-6">
+                      <label className="text-xs font-bold text-slate-500 mb-1 block">انتقال مالکیت به:</label>
+                      <div className="flex gap-2">
+                          <select 
+                             className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-sm font-bold"
+                             value={transferTarget}
+                             onChange={e => setTransferTarget(e.target.value)}
+                          >
+                             {usersList.map(u => (
+                                 <option key={u.username} value={u.username}>{u.username}</option>
+                             ))}
+                          </select>
+                          <button 
+                             onClick={() => {
+                                 if (onTransferTab) {
+                                     onTransferTab(manageTabId, transferTarget);
+                                     setManageTabId(null);
+                                 }
+                             }}
+                             className="bg-amber-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-amber-600 transition-colors"
+                          >
+                              انتقال
+                          </button>
+                      </div>
+                      <p className="text-[9px] text-amber-600 mt-1">مالک فعلی دسترسی خود را از دست خواهد داد.</p>
+                  </div>
+
+                  {/* Copy Section */}
+                  <div>
+                      <label className="text-xs font-bold text-slate-500 mb-1 block">ایجاد کپی برای:</label>
+                      <div className="flex gap-2">
+                          <select 
+                             className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-sm font-bold"
+                             value={copyTarget}
+                             onChange={e => setCopyTarget(e.target.value)}
+                          >
+                             {usersList.map(u => (
+                                 <option key={u.username} value={u.username}>{u.username}</option>
+                             ))}
+                          </select>
+                          <button 
+                             onClick={() => {
+                                 if (onCopyTab) {
+                                     onCopyTab(manageTabId, copyTarget);
+                                     setManageTabId(null);
+                                 }
+                             }}
+                             className="bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-600 transition-colors"
+                          >
+                              کپی
+                          </button>
+                      </div>
+                      <p className="text-[9px] text-indigo-600 mt-1">یک نسخه جدید ایجاد می‌شود و اصل تب حفظ می‌شود.</p>
+                  </div>
+
+              </div>
+          </div>
+      )}
+
+      {/* Custom Confirmation Modal (Delete) */}
       {confirmDeleteId && (
          <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setConfirmDeleteId(null)}>
             <div className="bg-white p-6 rounded-3xl shadow-2xl border border-red-100 max-w-xs w-full animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>

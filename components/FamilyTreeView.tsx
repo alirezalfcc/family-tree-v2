@@ -14,22 +14,22 @@ interface FamilyTreeViewProps {
   onSelectByName?: (name: string) => void;
   focusKey?: number;
   viewMode: ViewMode;
-  layoutConfig?: Record<string, any>; // برای دریافت چیدمان ذخیره شده
-  onSaveLayout?: (layout: any) => void; // برای ذخیره چیدمان
-  isAuthenticated?: boolean; // برای بررسی دسترسی
+  layoutConfig?: Record<string, any>; 
+  onSaveLayout?: (layout: any) => void; 
+  isAuthenticated?: boolean;
+  viewRootId?: string | null; // New Prop
+  onToggleViewRoot?: (id: string) => void; // New Prop
 }
 
-// اینترفیس برای ذخیره آفست‌های دستی و تنظیمات خطوط هر نود
 interface NodeOffsets {
     [id: string]: { 
         x: number; 
         y: number; 
-        elbow?: number; // مقدار اختصاصی زانو (ارتفاع خط افقی)
-        entryX?: number; // مقدار جابجایی خط عمودی اتصال به نود (چپ و راست)
+        elbow?: number; 
+        entryX?: number; 
     };
 }
 
-// چیدمان پیش‌فرض خالی (محاسبه توسط الگوریتم)
 const DEFAULT_VERTICAL_LAYOUT: NodeOffsets = {};
 
 const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({ 
@@ -43,7 +43,9 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
   viewMode,
   layoutConfig = {},
   onSaveLayout,
-  isAuthenticated = false
+  isAuthenticated = false,
+  viewRootId,
+  onToggleViewRoot
 }) => {
   const transformWrapperRef = useRef<any>(null);
   const [isOverview, setIsOverview] = useState(false); 
@@ -58,7 +60,7 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
 
   // تنظیمات عمومی
   const [fontSizeScale, setFontSizeScale] = useState(1);
-  const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false); // New state for panel visibility
+  const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false); 
 
   // نود انتخاب شده برای ویرایش تنظیمات (مثل خط اتصال)
   const [configNodeId, setConfigNodeId] = useState<string | null>(null);
@@ -82,7 +84,6 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
 
   // لود کردن تنظیمات
   useEffect(() => {
-    // اولویت با کانفیگ دریافتی از App (دیتابیس) است که حالا بر اساس فیلتر (all, male, female) ارسال می‌شود
     if (layoutConfig) {
         setCustomOffsets(layoutConfig);
     } 
@@ -162,8 +163,6 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
           // اگر دکمه کنترل نگه داشته شده باشد، تنظیمات تکی باز نمی‌شود تا تداخل با انتخاب چندگانه ایجاد نشود
           if (!e.ctrlKey && !e.shiftKey) {
              setConfigNodeId(person.id);
-             // در موبایل اگر کاربر روی نود کلیک کرد و پنل بسته بود، پیشنهاد باز کردن پنل داده شود (اختیاری)
-             // فعلاً برای شلوغ نشدن UI خودکار باز نمی‌کنیم
           }
       }
   };
@@ -237,7 +236,6 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
           return;
       }
       
-      // بررسی احراز هویت برای درگ کردن
       if (!isAuthenticated) {
           alert("برای تغییر چیدمان باید وارد حساب مدیریت شوید.");
           setIsDragMode(false);
@@ -247,7 +245,6 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
       e.preventDefault();
       e.stopPropagation();
 
-      // مدیریت انتخاب چندگانه با Ctrl یا Shift
       const isMultiSelectModifier = e.ctrlKey || e.shiftKey;
       let newSelectedIds = new Set<string>(multiSelectedIds);
 
@@ -258,25 +255,19 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
               newSelectedIds.add(nodeId);
           }
           setMultiSelectedIds(newSelectedIds);
-          // وقتی چندگانه انتخاب می‌کنیم، تنظیمات تکی را می‌بندیم
           setConfigNodeId(null);
       } else {
-          // اگر روی آیتمی کلیک شد که در لیست انتخاب شده‌ها نیست، انتخاب‌ها ریست شود
-          // مگر اینکه آیتم از قبل انتخاب شده باشد (برای درگ کردن گروهی)
           if (!newSelectedIds.has(nodeId)) {
               newSelectedIds.clear();
               newSelectedIds.add(nodeId);
               setMultiSelectedIds(newSelectedIds);
               setConfigNodeId(nodeId);
           } else {
-              // اگر روی یکی از اعضای گروه کلیک شد، تنظیمات همان را نشان بده
               setConfigNodeId(nodeId);
           }
       }
 
-      // --- CALCULATE SUBTREE (Include descendants in drag) ---
       const allTreeNodes = treeLayout.descendants() as d3.HierarchyPointNode<Person>[];
-      // Explicitly type the Map to prevent inference as Map<any, any> which causes node to be unknown
       const nodeMap = new Map<string, d3.HierarchyPointNode<Person>>();
       allTreeNodes.forEach(n => nodeMap.set(n.data.id, n));
       
@@ -285,7 +276,6 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
       newSelectedIds.forEach((selectedId: string) => {
           const node = nodeMap.get(selectedId);
           if (node) {
-              // اضافه کردن نود و تمام زیرمجموعه‌هایش به لیست جابجایی
               affectedIds.add(node.data.id);
               node.descendants().forEach(d => {
                   const p = d.data as Person;
@@ -298,7 +288,6 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
       if (draggedIds.length === 0) return;
 
       const initialOffsets: NodeOffsets = {};
-      // ذخیره آفست اولیه برای همه نودهای درگیر
       draggedIds.forEach(id => {
           const existing = customOffsetsRef.current[id] || { x: 0, y: 0 };
           initialOffsets[id] = { ...existing };
@@ -311,7 +300,7 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
           draggedIds: draggedIds
       };
 
-      setDraggingNodeId(nodeId); // فقط برای استایل دهی
+      setDraggingNodeId(nodeId);
   };
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
@@ -331,12 +320,11 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
 
       const nextOffsets = { ...customOffsetsRef.current };
 
-      // اعمال تغییر مکان برای همه نودهای انتخاب شده
       draggedIds.forEach(id => {
           const init = initialOffsets[id];
           if (init) {
             nextOffsets[id] = {
-                ...init, // حفظ elbow و entryX
+                ...init, 
                 x: init.x + totalDx,
                 y: init.y + totalDy,
             };
@@ -350,7 +338,6 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
       if (dragState.current) {
           dragState.current = null;
           setDraggingNodeId(null);
-          // ذخیره نهایی در دیتابیس
           if (onSaveLayout) {
               onSaveLayout(customOffsetsRef.current);
           }
@@ -434,11 +421,10 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
         className={`flex-1 m-2 sm:m-4 rounded-[2rem] border-[4px] sm:border-[8px] border-white shadow-[0_0_30px_rgba(0,0,0,0.05)] overflow-hidden relative ${isSimple ? 'bg-white' : 'bg-[#fdfcfb]'}`} 
         onClick={() => {
             setConfigNodeId(null);
-            setMultiSelectedIds(new Set()); // لغو انتخاب چندگانه با کلیک روی صفحه خالی
+            setMultiSelectedIds(new Set()); 
         }} 
       >
         
-        {/* پنل تنظیمات پیشرفته - فقط در حالت عمودی */}
         {viewMode === 'vertical_tree' && (
             <div className={`
                  absolute top-2 right-2 md:top-6 md:right-6 z-40 
@@ -448,7 +434,6 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
                  animate-in fade-in slide-in-from-right-4
             `} onClick={(e) => e.stopPropagation()}>
                 
-                {/* دکمه باز/بسته کردن پنل */}
                 <button 
                    onClick={() => setIsSettingsPanelOpen(!isSettingsPanelOpen)}
                    className={`
@@ -472,7 +457,6 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
                         </div>
                         
                         <div className="space-y-4">
-                            {/* تنظیم سایز فونت */}
                             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                                 <label className="flex justify-between text-[10px] font-bold text-slate-500 mb-1">
                                     <span>اندازه نوشته‌ها</span>
@@ -486,7 +470,6 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
                                 />
                             </div>
 
-                            {/* تنظیمات اختصاصی نود انتخاب شده */}
                             <div className={`p-3 rounded-xl border transition-all ${configNodeId ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-100 opacity-60'}`}>
                                 <div className="flex items-center gap-2 mb-4 border-b border-indigo-100 pb-2">
                                     <span className={`w-2 h-2 rounded-full ${configNodeId ? 'bg-indigo-500 animate-pulse' : 'bg-slate-300'}`}></span>
@@ -620,12 +603,10 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
 
                     let pathData;
                     if (viewMode === 'vertical_tree') {
-                        // تنظیمات اختصاصی لینک
                         const targetId = link.target.data.id;
                         const elbowRatio = customOffsets[targetId]?.elbow ?? 0.5;
                         const entryX = customOffsets[targetId]?.entryX ?? 0;
                         
-                        // محاسبه نقاط
                         const midY = sY + (tY - sY) * elbowRatio;
                         const finalTX = tX + entryX; 
 
@@ -686,17 +667,14 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
                     }}
                     className={isDragMode ? 'hover:brightness-110' : ''}
                   >
-                     {/* نشانگر حالت انتخاب برای تنظیمات */}
                      {isConfigSelected && viewMode === 'vertical_tree' && (
                         <div className="absolute -inset-4 border-2 border-indigo-500 rounded-[3rem] opacity-50 pointer-events-none animate-pulse"></div>
                      )}
                      
-                     {/* نشانگر انتخاب چندگانه */}
                      {isMultiSelected && viewMode === 'vertical_tree' && (
                         <div className="absolute -inset-2 border-4 border-orange-400 rounded-[2.8rem] opacity-80 pointer-events-none"></div>
                      )}
 
-                     {/* نشانگر حالت درگ */}
                     {isDragMode && (
                         <div className={`absolute -inset-2 border-2 border-dashed rounded-[2.8rem] pointer-events-none transition-colors ${isDragging ? 'border-amber-500 bg-amber-500/10' : 'border-slate-300 hover:border-amber-300'}`}></div>
                     )}
@@ -716,6 +694,8 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
                       viewMode={viewMode}
                       isDragMode={isDragMode}
                       fontSizeScale={viewMode === 'vertical_tree' ? fontSizeScale : 1}
+                      viewRootId={viewRootId}
+                      onToggleViewRoot={onToggleViewRoot}
                     />
                   </div>
                 )})}
@@ -740,7 +720,7 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
           title="تمرکز بر ریشه"
         >
           <svg className="w-5 h-5 md:w-6 md:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 01 1 1v4a1 1 0 001 1m-6 0h6" />
           </svg>
         </button>
       </div>

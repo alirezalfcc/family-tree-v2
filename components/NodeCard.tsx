@@ -16,7 +16,9 @@ interface NodeCardProps {
   ancestors?: Person[]; 
   viewMode: ViewMode;
   isDragMode?: boolean; 
-  fontSizeScale?: number; // New Prop
+  fontSizeScale?: number;
+  viewRootId?: string | null; // New Prop
+  onToggleViewRoot?: (id: string) => void; // New Prop
 }
 
 const stringToColor = (str: string) => {
@@ -59,7 +61,9 @@ const NodeCard: React.FC<NodeCardProps> = ({
   ancestors = [],
   viewMode,
   isDragMode = false,
-  fontSizeScale = 1
+  fontSizeScale = 1,
+  viewRootId,
+  onToggleViewRoot
 }) => {
   const [showBreadcrumbs, setShowBreadcrumbs] = useState(false);
 
@@ -69,6 +73,7 @@ const NodeCard: React.FC<NodeCardProps> = ({
   const totalChildren = (person.children?.length || 0) + (person.sharedChildren?.length || 0);
 
   const isSimple = viewMode === 'simple_tree' || viewMode === 'vertical_tree';
+  const isViewRoot = viewRootId === person.id;
 
   // Handle interactions based on Drag Mode
   const handleDetailsClick = (e: React.MouseEvent, p: Person) => {
@@ -79,6 +84,11 @@ const NodeCard: React.FC<NodeCardProps> = ({
   const handleNavClick = (e: React.MouseEvent, p: Person) => {
       e.stopPropagation();
       if (!isDragMode) onActivateNavigation(p);
+  };
+
+  const handleAnchorClick = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (onToggleViewRoot && !isDragMode) onToggleViewRoot(person.id);
   };
 
   // ***********************************************
@@ -93,6 +103,7 @@ const NodeCard: React.FC<NodeCardProps> = ({
              flex flex-col items-center justify-center cursor-pointer transition-all hover:scale-105
              px-2 py-1 bg-white
              ${isSelectedForNav ? 'ring-2 ring-amber-400 rounded-lg' : ''}
+             ${isViewRoot ? 'ring-4 ring-purple-500 rounded-lg shadow-lg shadow-purple-200' : ''}
              ${isDragMode ? 'pointer-events-none' : ''} 
           `}
         >
@@ -118,6 +129,17 @@ const NodeCard: React.FC<NodeCardProps> = ({
               {isShahid && <span className="text-[8px] text-red-600 font-bold">(شهید)</span>}
               {isDeceased && <span className="text-[8px] text-gray-400">†</span>}
           </div>
+          
+          {/* Anchor Button for Simple Mode */}
+          {!isDragMode && (
+              <button 
+                  onClick={handleAnchorClick}
+                  className={`absolute -top-2 -right-2 p-1 rounded-full shadow-sm border transition-all z-10 ${isViewRoot ? 'bg-purple-600 text-white border-purple-700' : 'bg-white text-slate-400 border-slate-200 hover:text-purple-500'}`}
+                  title={isViewRoot ? "حذف فیلتر نمایش" : "نمایش فقط این شاخه"}
+              >
+                  <span className="text-sm font-bold leading-none" style={{ fontFamily: 'sans-serif' }}>&#9875;</span>
+              </button>
+          )}
         </div>
       );
   }
@@ -150,6 +172,7 @@ const NodeCard: React.FC<NodeCardProps> = ({
           bg-gradient-to-br ${currentStyle}
           ${isRoot ? 'w-28 h-28 ring-4 ring-amber-500/30' : ''}
           ${isSelectedForNav ? 'ring-2 ring-amber-400 border-amber-400' : ''}
+          ${isViewRoot ? 'ring-4 ring-purple-500 border-purple-500 scale-110' : ''}
         `}
         onClick={(e) => {
           e.stopPropagation();
@@ -188,9 +211,29 @@ const NodeCard: React.FC<NodeCardProps> = ({
         bg-gradient-to-br ${currentStyle}
         ${isRoot ? 'ring-8 ring-amber-500/20 scale-105' : ''}
         ${isSelectedForNav ? 'ring-4 ring-amber-400 border-amber-400' : ''}
+        ${isViewRoot ? 'ring-4 ring-purple-500 border-purple-500 shadow-purple-500/30' : ''}
         ${isDragMode ? 'cursor-move' : ''}
       `}
     >
+      {/* Anchor Icon */}
+      {!isDragMode && (
+          <button 
+              onClick={handleAnchorClick}
+              className={`absolute top-4 right-4 p-1.5 rounded-full backdrop-blur-md transition-all z-30 shadow-sm border
+                  ${isViewRoot 
+                      ? 'bg-purple-600 text-white border-purple-400 hover:bg-purple-700' 
+                      : `bg-white/20 text-white border-white/30 hover:bg-white/40 ${isLight ? 'text-slate-500 hover:text-purple-600' : ''}`}
+              `}
+              title={isViewRoot ? "حذف فیلتر نمایش" : "تمرکز فقط روی این شاخه"}
+          >
+              {isViewRoot ? (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+              ) : (
+                  <span className="text-xl leading-none" style={{ fontFamily: 'sans-serif' }}>&#9875;</span>
+              )}
+          </button>
+      )}
+
       <div className="absolute top-3 left-3 z-20">
         {person.imageUrl ? (
           <img src={person.imageUrl} alt={person.name} className="w-10 h-10 rounded-full border-2 border-white/50 object-cover shadow-md" />

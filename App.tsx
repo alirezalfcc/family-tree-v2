@@ -17,7 +17,8 @@ import {
   addChildToTree, 
   movePersonInTree, 
   removePersonFromTree,
-  filterTree
+  filterTree,
+  findNodeById
 } from './utils/genealogy';
 import { exportToSVG } from './utils/svgExporter';
 
@@ -43,6 +44,7 @@ const App: React.FC = () => {
   // --- UI States ---
   const [viewMode, setViewMode] = useState<ViewMode>('rich_tree'); 
   const [listFilter, setListFilter] = useState<ListFilter>('all');
+  const [viewRootId, setViewRootId] = useState<string | null>(null); // For "Show from this person down"
   const [searchGlobal, setSearchGlobal] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -60,6 +62,7 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false); // Used for AuthModal
   const [showStats, setShowStats] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
   
   const [marqueeText, setMarqueeText] = useState("خوش آمدید. نسخه پیش‌نمایش (بدون سرور).");
   
@@ -75,20 +78,29 @@ const App: React.FC = () => {
   const activeTab = useMemo(() => visibleTabs.find(t => t.id === activeTabId) || visibleTabs[0] || { id: 'dummy', title: 'خالی', data: { id: 'root', name: 'خالی', children: [] } }, [visibleTabs, activeTabId]);
   
   // **PERMISSION LOGIC**: Can edit ONLY if isAuthenticated AND (Admin OR Owner)
-  // Public tabs are viewable by all, but editable only by owner/admin.
   const canEditActiveTab = useMemo(() => {
       if (!isAuthenticated || !currentUser) return false;
       if (currentUser.role === 'admin') return true;
-      // If it's a dummy tab or undefined, no edit
       if (!activeTab || activeTab.id === 'dummy') return false;
       return activeTab.owner === currentUser.username;
   }, [isAuthenticated, currentUser, activeTab]);
 
   const filteredTreeData = useMemo(() => {
-     if (listFilter === 'all') return activeTab.data;
-     const filtered = filterTree(activeTab.data, listFilter);
-     return filtered || activeTab.data; 
-  }, [activeTab.data, listFilter]);
+     let baseData = activeTab.data;
+     
+     // 1. Apply View Root Filter (Show from specific person down)
+     if (viewRootId) {
+         const foundNode = findNodeById(baseData, viewRootId);
+         if (foundNode) {
+             baseData = foundNode;
+         }
+     }
+
+     // 2. Apply Gender Filter
+     if (listFilter === 'all') return baseData;
+     const filtered = filterTree(baseData, listFilter);
+     return filtered || baseData; 
+  }, [activeTab.data, listFilter, viewRootId]);
 
   const activeMembersExtended = useMemo(() => {
     return flattenTree(activeTab.data);
@@ -210,7 +222,7 @@ const App: React.FC = () => {
               setOfflineReason("عدم دسترسی به سرور");
               
               if (performLocalLogin()) {
-                  alert("توجه: شما در حالت پیش‌نمایش (آفلاین) وارد شدید.");
+                  // Alert removed to fix flashing issue
                   return;
               }
               throw new Error("ارتباط با سرور برقرار نشد و کاربر آفلاین یافت نشد.");
@@ -537,6 +549,66 @@ const App: React.FC = () => {
       saveTabsToCloud(newTabs);
   };
 
+  // --- Admin Tab Management (Transfer & Copy) ---
+  const handleTransferTab = (tabId: string, newOwner: string) => {
+      if (!currentUser || currentUser.role !== 'admin') return;
+      const newTabs = tabs.map(t => t.id === tabId ? { ...t, owner: newOwner } : t);
+      saveTabsToCloud(newTabs);
+      alert(`مالکیت تب با موفقیت به ${newOwner} منتقل شد.`);
+  };
+
+  const handleCopyTabToUser = (tabId: string, targetUser: string) => {
+      if (!currentUser || currentUser.role !== 'admin') return;
+      const sourceTab = tabs.find(t => t.id === tabId);
+      if (!sourceTab) return;
+      
+      const newTab: FamilyTab = {
+          ...sourceTab,
+          id: `tab-${Date.now()}`,
+          title: `${sourceTab.title} (کپی)`,
+          owner: targetUser,
+          isPublic: false // Default to private for copies
+      };
+      const newTabs = [...tabs, newTab];
+      saveTabsToCloud(newTabs);
+      alert(`کپی شجره نامه برای کاربر ${targetUser} ایجاد شد.`);
+  };
+
+  const handleExtractSubtree = (personId: string) => {
+      if (!canEditActiveTab) {
+          alert("شما دسترسی ویرایش این خاندان را ندارید.");
+          return;
+      }
+      
+      const nodeToExtract = findNodeById(activeTab.data, personId);
+      if (!nodeToExtract) {
+          alert("خطا: اطلاعات فرد یافت نشد.");
+          return;
+      }
+
+      const newTabName = `خاندان ${nodeToExtract.name} ${nodeToExtract.surname || ''}`;
+      
+      // Deep clone using JSON serialization
+      const clonedData = JSON.parse(JSON.stringify(nodeToExtract));
+      
+      const newTab: FamilyTab = {
+          id: `tab-${Date.now()}`,
+          title: newTabName,
+          data: clonedData,
+          owner: currentUser?.username || 'admin',
+          isPublic: activeTab.isPublic
+      };
+      
+      const newTabs = [...tabs, newTab];
+      saveTabsToCloud(newTabs);
+      
+      // Switch to new tab and clear details
+      setActiveTabId(newTab.id);
+      setDetailedPerson(null);
+      
+      alert(`خاندان جدید "${newTabName}" با موفقیت ایجاد شد.`);
+  };
+
   const handleUpdateActiveTree = (newData: Person) => {
     const newTabs = tabs.map(t => t.id === activeTabId ? { ...t, data: newData } : t);
     saveTabsToCloud(newTabs);
@@ -618,6 +690,28 @@ const App: React.FC = () => {
     }
   }, [navigatingPerson, activeMembersExtended, handlePersonNavigation]);
 
+  // --- Slideshow Logic ---
+  useEffect(() => {
+    let interval: any;
+    if (slideshowActive) {
+      interval = setInterval(() => {
+        const members = searchGlobal ? allTabsMembers : activeMembersExtended;
+        if (members.length === 0) return;
+        
+        let nextIndex = 0;
+        if (navigatingPerson) {
+            const currentIndex = members.findIndex(m => m.id === navigatingPerson.id);
+            if (currentIndex !== -1) {
+                nextIndex = (currentIndex + 1) % members.length;
+            }
+        }
+        
+        handlePersonNavigation(members[nextIndex], true);
+      }, slideDelay * 1000);
+    }
+    return () => clearInterval(interval);
+  }, [slideshowActive, slideDelay, activeMembersExtended, allTabsMembers, searchGlobal, navigatingPerson, handlePersonNavigation]);
+
   const handleSaveLayout = useCallback((newLayout: any) => {
       setLayoutConfig(prev => {
           const updatedFullConfig = { ...prev, [listFilter]: newLayout };
@@ -631,12 +725,24 @@ const App: React.FC = () => {
       if (!isOfflineMode) apiCall('settings', 'PUT', { marquee: text }).catch(() => {});
   };
 
+  // Toggle Scope Focus
+  const handleToggleViewRoot = (id: string) => {
+      if (viewRootId === id) {
+          setViewRootId(null);
+      } else {
+          setViewRootId(id);
+      }
+  };
+
   const headerTitle = activeTab.title.startsWith('خاندان') ? `شجره نامه ${activeTab.title}` : `شجره نامه خاندان ${activeTab.title}`;
+
+  // TARGET FOR FOCUS: Use Detailed Person OR Navigating Person
+  const targetFocusPerson = detailedPerson || navigatingPerson;
 
   if (!isLoaded) return <div className="flex items-center justify-center h-screen bg-[#f8f5f2]">در حال بارگذاری...</div>;
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden text-right bg-[#f8f5f2]" dir="rtl" onClick={() => setDetailedPerson(null)}>
+    <div className="flex flex-col h-screen w-screen overflow-hidden text-right bg-[#f8f5f2]" dir="rtl" onClick={() => { setDetailedPerson(null); setShowFilterMenu(false); }}>
       {isSaving && <div className="fixed top-0 left-0 w-full h-1 bg-amber-200 z-[100]"><div className="h-full bg-amber-600 animate-pulse w-full"></div></div>}
       
       {isOfflineMode && (
@@ -671,28 +777,57 @@ const App: React.FC = () => {
                 onTogglePrivacy={handleTogglePrivacy}
                 isAuthenticated={isAuthenticated}
                 currentUser={currentUser}
+                usersList={localUsers}
+                onTransferTab={handleTransferTab}
+                onCopyTab={handleCopyTabToUser}
             />
         </div>
         
         <div className="flex items-center gap-2 p-1 order-1 md:order-2">
-             <div className="flex bg-slate-100 rounded-lg p-1">
-                <button onClick={() => setListFilter('all')} className={`p-2 rounded-md transition-all ${listFilter === 'all' ? 'bg-white shadow text-slate-800' : 'text-slate-400 hover:text-slate-600'}`} title="نمایش همه">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
-                </button>
-                <button onClick={() => setListFilter('male')} className={`p-2 rounded-md transition-all ${listFilter === 'male' ? 'bg-white shadow' : 'hover:bg-slate-200'} text-black`} title="فقط مردان">
-                   {/* Male Person Icon (Black) */}
-                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                     <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-                     <circle cx="12" cy="7" r="4" />
-                   </svg>
-                </button>
-                <button onClick={() => setListFilter('female')} className={`p-2 rounded-md transition-all ${listFilter === 'female' ? 'bg-white shadow' : 'hover:bg-slate-200'} text-pink-500`} title="فقط زنان">
-                   {/* Female Person Icon (Pink) */}
-                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                     <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-                     <circle cx="12" cy="7" r="4" />
-                   </svg>
-                </button>
+             
+             {/* New Filter Dropdown */}
+             <div className="relative">
+                 <button 
+                    onClick={(e) => { e.stopPropagation(); setShowFilterMenu(!showFilterMenu); }} 
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl transition-all border ${showFilterMenu ? 'bg-slate-100 border-slate-300' : 'bg-white border-slate-100 hover:border-slate-300'} text-slate-600 text-xs font-bold`}
+                 >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" /></svg>
+                    فیلترها
+                    {(listFilter !== 'all' || viewRootId) && <span className="w-2 h-2 rounded-full bg-amber-500"></span>}
+                 </button>
+
+                 {showFilterMenu && (
+                     <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-2xl shadow-2xl border border-slate-200 p-3 z-50 animate-in fade-in zoom-in-95 origin-top-left" onClick={e => e.stopPropagation()}>
+                         <div className="space-y-1 mb-3">
+                             <p className="text-[10px] text-slate-400 font-bold mb-1 px-1">جنسیت</p>
+                             <button onClick={() => setListFilter('all')} className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all ${listFilter === 'all' ? 'bg-slate-100 text-slate-800' : 'hover:bg-slate-50 text-slate-600'}`}>
+                                 <span>نمایش همه</span>
+                                 {listFilter === 'all' && <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
+                             </button>
+                             <button onClick={() => setListFilter('male')} className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all ${listFilter === 'male' ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-50 text-slate-600'}`}>
+                                 <span>فقط مردان</span>
+                                 {listFilter === 'male' && <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
+                             </button>
+                             <button onClick={() => setListFilter('female')} className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all ${listFilter === 'female' ? 'bg-pink-50 text-pink-700' : 'hover:bg-slate-50 text-slate-600'}`}>
+                                 <span>فقط زنان</span>
+                                 {listFilter === 'female' && <svg className="w-4 h-4 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
+                             </button>
+                         </div>
+                         
+                         {viewRootId && (
+                             <div className="border-t border-slate-100 pt-2 space-y-1">
+                                 <p className="text-[10px] text-slate-400 font-bold mb-1 px-1">محدوده نمایش</p>
+                                 <button 
+                                     onClick={() => { setViewRootId(null); setShowFilterMenu(false); }}
+                                     className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold hover:bg-red-50 text-red-600 transition-all mt-1"
+                                 >
+                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                     <span>حذف فیلتر شاخه (نمایش کامل)</span>
+                                 </button>
+                             </div>
+                         )}
+                     </div>
+                 )}
              </div>
              
              <div className="w-px h-6 bg-slate-200 mx-1"></div>
@@ -712,7 +847,7 @@ const App: React.FC = () => {
       </div>
 
       <main className="flex-1 relative overflow-hidden mb-8">
-         <div className="w-full h-full relative" key={`${viewMode}-${listFilter}`}>
+         <div className="w-full h-full relative" key={`${viewMode}-${listFilter}-${viewRootId}`}>
              <FamilyTreeView 
                 data={filteredTreeData} 
                 onSelectDetails={setDetailedPerson} 
@@ -724,6 +859,8 @@ const App: React.FC = () => {
                 layoutConfig={layoutConfig[listFilter] || {}} 
                 onSaveLayout={handleSaveLayout}
                 isAuthenticated={isAuthenticated}
+                viewRootId={viewRootId}
+                onToggleViewRoot={handleToggleViewRoot}
             />
              <div className="floating-nav">
                 <FloatingNav 
@@ -748,6 +885,7 @@ const App: React.FC = () => {
           onAddExistingChild={handleAddExistingChild}
           onDelete={handleDeletePerson}
           onMoveSubtree={handleMoveSubtree}
+          onExtractSubtree={handleExtractSubtree}
           isAuthenticated={isAuthenticated}
           onLoginSuccess={() => setShowSettings(true)}
           canEdit={canEditActiveTab} // Pass the calculated permission

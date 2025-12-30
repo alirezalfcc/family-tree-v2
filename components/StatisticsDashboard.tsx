@@ -21,9 +21,10 @@ const StatisticsDashboard: React.FC<StatisticsDashboardProps> = ({ members, onCl
     // شمارش نام‌ها برای پیدا کردن پرتکرارترین‌ها
     const maleNames: Record<string, number> = {};
     const femaleNames: Record<string, number> = {};
+    const surnameCounts: Record<string, number> = {};
     
-    // افراد مسن (زنده)
-    const oldestLiving: { name: string; age: number; ageStr: string; imageUrl?: string }[] = [];
+    // والدین با بیشترین فرزند
+    const prolificParents: { name: string; count: number }[] = [];
 
     members.forEach(m => {
         const gender = getDerivedGender(m);
@@ -42,20 +43,19 @@ const StatisticsDashboard: React.FC<StatisticsDashboardProps> = ({ members, onCl
             femaleNames[cleanName] = (femaleNames[cleanName] || 0) + 1;
         }
 
-        // سن
-        if (!isDeceased && m.birthDate) {
-            const ageStr = calculatePersianAge(m.birthDate, undefined, m.status);
-            if (ageStr) {
-                const age = parseInt(ageStr.replace(' سال', ''));
-                if (!isNaN(age)) {
-                    oldestLiving.push({ 
-                        name: `${m.name} ${m.surname || ''}`.trim(), 
-                        age, 
-                        ageStr,
-                        imageUrl: m.imageUrl
-                    });
-                }
-            }
+        // شمارش نام خانوادگی
+        if (m.surname) {
+            const sn = m.surname.trim();
+            if (sn) surnameCounts[sn] = (surnameCounts[sn] || 0) + 1;
+        }
+
+        // شمارش فرزندان
+        const childrenCount = (m.children?.length || 0) + (m.sharedChildren?.length || 0);
+        if (childrenCount > 0) {
+            prolificParents.push({
+                name: `${m.name} ${m.surname || ''}`.trim(),
+                count: childrenCount
+            });
         }
     });
 
@@ -68,8 +68,13 @@ const StatisticsDashboard: React.FC<StatisticsDashboardProps> = ({ members, onCl
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5);
 
-    // مرتب‌سازی سن
-    const topOldest = oldestLiving.sort((a, b) => b.age - a.age).slice(0, 5);
+    // مرتب‌سازی فامیلی‌ها
+    const topSurnames = Object.entries(surnameCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3);
+
+    // مرتب‌سازی تعداد فرزندان
+    const topParents = prolificParents.sort((a, b) => b.count - a.count).slice(0, 5);
 
     return {
         total: members.length,
@@ -77,10 +82,11 @@ const StatisticsDashboard: React.FC<StatisticsDashboardProps> = ({ members, onCl
         totalFemales,
         deceasedCount,
         livingCount,
-        maxDepth, // تعداد نسل‌ها (depth از 0 شروع میشه پس +1)
+        maxDepth, 
         topMaleNames,
         topFemaleNames,
-        topOldest
+        topParents,
+        topSurnames
     };
   }, [members]);
 
@@ -168,23 +174,26 @@ const StatisticsDashboard: React.FC<StatisticsDashboardProps> = ({ members, onCl
                     </div>
                 </div>
 
-                {/* مسن ترین ها */}
+                {/* پرجمعیت ترین ها */}
                 <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
                      <h3 className="text-lg font-black text-slate-800 mb-4 flex items-center gap-2">
                         <span className="w-2 h-6 bg-emerald-400 rounded-full"></span>
-                        بزرگان خاندان (مسن‌ترین‌های در قید حیات)
+                        پرجمعیت‌ترین خانواده‌ها (بیشترین فرزند)
                     </h3>
                     <div className="space-y-3">
-                        {stats.topOldest.length > 0 ? stats.topOldest.map((p, idx) => (
+                        {stats.topParents.length > 0 ? stats.topParents.map((p, idx) => (
                             <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
                                 <div className="flex items-center gap-3">
                                     <span className="w-6 h-6 bg-slate-200 rounded-full flex items-center justify-center text-xs font-bold text-slate-600">{idx + 1}</span>
                                     <span className="font-bold text-slate-700 text-sm">{p.name}</span>
                                 </div>
-                                <span className="font-black text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg text-sm">{p.ageStr}</span>
+                                <div className="flex items-center gap-1">
+                                    <span className="font-black text-emerald-600 text-sm">{p.count}</span>
+                                    <span className="text-[10px] text-slate-400 font-bold">فرزند</span>
+                                </div>
                             </div>
                         )) : (
-                            <div className="text-center text-slate-400 text-sm py-4">اطلاعات تاریخ تولد برای محاسبه سن کافی نیست.</div>
+                            <div className="text-center text-slate-400 text-sm py-4">اطلاعاتی یافت نشد.</div>
                         )}
                     </div>
                 </div>
@@ -195,13 +204,19 @@ const StatisticsDashboard: React.FC<StatisticsDashboardProps> = ({ members, onCl
                 <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
                      <h3 className="text-lg font-black text-slate-800 mb-4 flex items-center gap-2">
                         <span className="w-2 h-6 bg-blue-400 rounded-full"></span>
-                        محبوب‌ترین نام‌های پسر
+                        محبوب‌ترین نام‌ها
                     </h3>
                     <div className="flex flex-wrap gap-2">
-                        {stats.topMaleNames.map(([name, count], idx) => (
-                            <div key={name} className="flex-1 min-w-[100px] bg-blue-50 border border-blue-100 p-3 rounded-xl flex flex-col items-center">
-                                <span className="text-2xl font-black text-blue-600 mb-1">{count}</span>
-                                <span className="text-xs font-bold text-slate-600">{name}</span>
+                        {stats.topMaleNames.slice(0, 3).map(([name, count], idx) => (
+                            <div key={name} className="flex-1 min-w-[80px] bg-blue-50 border border-blue-100 p-2 rounded-xl flex flex-col items-center">
+                                <span className="text-xl font-black text-blue-600 mb-1">{count}</span>
+                                <span className="text-[10px] font-bold text-slate-600">{name}</span>
+                            </div>
+                        ))}
+                         {stats.topFemaleNames.slice(0, 3).map(([name, count], idx) => (
+                            <div key={name} className="flex-1 min-w-[80px] bg-pink-50 border border-pink-100 p-2 rounded-xl flex flex-col items-center">
+                                <span className="text-xl font-black text-pink-600 mb-1">{count}</span>
+                                <span className="text-[10px] font-bold text-slate-600">{name}</span>
                             </div>
                         ))}
                     </div>
@@ -209,14 +224,14 @@ const StatisticsDashboard: React.FC<StatisticsDashboardProps> = ({ members, onCl
 
                 <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
                      <h3 className="text-lg font-black text-slate-800 mb-4 flex items-center gap-2">
-                        <span className="w-2 h-6 bg-pink-400 rounded-full"></span>
-                        محبوب‌ترین نام‌های دختر
+                        <span className="w-2 h-6 bg-indigo-400 rounded-full"></span>
+                        پرتکرارترین نام‌های خانوادگی
                     </h3>
-                    <div className="flex flex-wrap gap-2">
-                        {stats.topFemaleNames.map(([name, count], idx) => (
-                            <div key={name} className="flex-1 min-w-[100px] bg-pink-50 border border-pink-100 p-3 rounded-xl flex flex-col items-center">
-                                <span className="text-2xl font-black text-pink-600 mb-1">{count}</span>
-                                <span className="text-xs font-bold text-slate-600">{name}</span>
+                    <div className="space-y-2">
+                        {stats.topSurnames.map(([name, count], idx) => (
+                            <div key={name} className="flex justify-between items-center px-4 py-2 bg-indigo-50 border border-indigo-100 rounded-xl">
+                                <span className="text-xs font-bold text-slate-700">{name}</span>
+                                <span className="text-sm font-black text-indigo-600">{count}</span>
                             </div>
                         ))}
                     </div>
