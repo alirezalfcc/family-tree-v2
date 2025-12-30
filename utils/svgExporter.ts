@@ -112,6 +112,7 @@ export const exportToSVG = (elementId: string, fileName: string) => {
     div { box-sizing: border-box; }
     * { font-family: 'Vazirmatn', sans-serif; }
     path { stroke-linecap: round; stroke-linejoin: round; }
+    .no-export { display: none !important; }
   `;
   
   styleElement.textContent = cssText;

@@ -8,6 +8,7 @@ import TabNavigation from './components/TabNavigation';
 import StatisticsDashboard from './components/StatisticsDashboard';
 import RelationshipCalculator from './components/RelationshipCalculator';
 import AuthModal from './components/AuthModal';
+import TabRelationshipMap from './components/TabRelationshipMap'; // New
 import { familyData as initialData } from './data';
 import { Person, FamilyTab, ViewMode, ListFilter, User } from './types';
 import { 
@@ -22,7 +23,7 @@ import {
 } from './utils/genealogy';
 import { exportToSVG } from './utils/svgExporter';
 
-const APP_VERSION = "v3.5 Final";
+const APP_VERSION = "v3.9 Final";
 
 // Local Storage Keys
 const LS_KEYS = {
@@ -63,6 +64,7 @@ const App: React.FC = () => {
   const [showStats, setShowStats] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [showMap, setShowMap] = useState(false); // New Map State
   
   const [marqueeText, setMarqueeText] = useState("خوش آمدید. نسخه پیش‌نمایش (بدون سرور).");
   
@@ -77,12 +79,13 @@ const App: React.FC = () => {
 
   const activeTab = useMemo(() => visibleTabs.find(t => t.id === activeTabId) || visibleTabs[0] || { id: 'dummy', title: 'خالی', data: { id: 'root', name: 'خالی', children: [] } }, [visibleTabs, activeTabId]);
   
-  // **PERMISSION LOGIC**: Can edit ONLY if isAuthenticated AND (Admin OR Owner)
+  // **PERMISSION LOGIC**: Can edit ONLY if isAuthenticated AND (Admin OR Owner OR SharedWith)
   const canEditActiveTab = useMemo(() => {
       if (!isAuthenticated || !currentUser) return false;
       if (currentUser.role === 'admin') return true;
       if (!activeTab || activeTab.id === 'dummy') return false;
-      return activeTab.owner === currentUser.username;
+      // Check ownership or sharing
+      return activeTab.owner === currentUser.username || activeTab.sharedWith?.includes(currentUser.username);
   }, [isAuthenticated, currentUser, activeTab]);
 
   const filteredTreeData = useMemo(() => {
@@ -106,23 +109,47 @@ const App: React.FC = () => {
     return flattenTree(activeTab.data);
   }, [activeTab.data]);
 
+  // Combined Members for Global Search (Consider Linked Tabs prioritization)
   const allTabsMembers = useMemo(() => {
-    if (!searchGlobal) return [];
-    return visibleTabs.flatMap(tab => {
+    // If Global Search is ON, return everything.
+    // If OFF, return Active + Linked Tabs
+    
+    let targetTabs = visibleTabs;
+    if (!searchGlobal && activeTab.linkedTabIds) {
+        targetTabs = visibleTabs.filter(t => t.id === activeTab.id || activeTab.linkedTabIds?.includes(t.id));
+    } else if (!searchGlobal) {
+        targetTabs = [activeTab];
+    }
+
+    return targetTabs.flatMap(tab => {
         const members = flattenTree(tab.data);
         return members.map(m => ({...m, tabId: tab.id, tabTitle: tab.title}));
     });
-  }, [visibleTabs, searchGlobal]);
+  }, [visibleTabs, searchGlobal, activeTab]);
+
+  // Special computed property for Auto-Complete in PersonDetails
+  // This always includes connected tabs even if global search is off, to find spouses etc.
+  const searchScopeMembers = useMemo(() => {
+      let targetTabs = [activeTab];
+      if (activeTab.linkedTabIds) {
+          const linked = visibleTabs.filter(t => activeTab.linkedTabIds?.includes(t.id));
+          targetTabs = [...targetTabs, ...linked];
+      }
+      return targetTabs.flatMap(tab => {
+          const members = flattenTree(tab.data);
+          return members.map(m => ({...m, tabId: tab.id, tabTitle: tab.title}));
+      });
+  }, [visibleTabs, activeTab]);
 
   const searchResults = useMemo(() => {
     if (!searchTerm || searchTerm.trim().length < 2) return [];
     const term = searchTerm.trim().toLowerCase();
-    const source = searchGlobal ? allTabsMembers : activeMembersExtended;
-    return source.filter((person: any) => {
+    
+    return allTabsMembers.filter((person: any) => {
         const fullName = `${person.name} ${person.surname || ''}`.toLowerCase();
         return fullName.includes(term) || person.name.toLowerCase().includes(term);
     }).slice(0, 20);
-  }, [searchTerm, searchGlobal, allTabsMembers, activeMembersExtended]);
+  }, [searchTerm, allTabsMembers]);
 
   // Load Local Users on Mount
   useEffect(() => {
@@ -362,17 +389,32 @@ const App: React.FC = () => {
 
   const handleRestore = async (data: any) => {
       if (!currentUser || currentUser.role !== 'admin') throw new Error("Access Denied");
+      
+      // Fallback for offline mode or full JSON restore
+      const restoreLocalState = (dataToRestore: any) => {
+          if (dataToRestore.familyTabs) setTabs(dataToRestore.familyTabs);
+          if (dataToRestore.settings?.marquee) setMarqueeText(dataToRestore.settings.marquee);
+          if (dataToRestore.users) {
+              setLocalUsers(dataToRestore.users);
+              localStorage.setItem(LS_KEYS.USERS, JSON.stringify(dataToRestore.users));
+          }
+          // Save tab data to local storage
+          localStorage.setItem(LS_KEYS.DATA, JSON.stringify(dataToRestore.familyTabs || tabs));
+      };
+
       try {
-          return await apiCall('_system/restore', 'POST', data);
+          // If online, try to restore to server
+          if (!isOfflineMode) {
+             await apiCall('_system/restore', 'POST', data);
+          }
+          
+          // Also update local state regardless of online status to show immediate change
+          // Note: API restore overwrites the DB, but we need to update React state too.
+          restoreLocalState(data);
+
       } catch (err: any) {
           if (err.message === "API_UNAVAILABLE") {
-              if (data.familyTabs) setTabs(data.familyTabs);
-              if (data.settings?.marquee) setMarqueeText(data.settings.marquee);
-              if (data.users) {
-                  setLocalUsers(data.users);
-                  localStorage.setItem(LS_KEYS.USERS, JSON.stringify(data.users));
-              }
-              localStorage.setItem(LS_KEYS.DATA, JSON.stringify(data.familyTabs || tabs));
+              restoreLocalState(data);
               return;
           }
           throw err;
@@ -467,7 +509,10 @@ const App: React.FC = () => {
           }
           if (!t.isPublic) {
               if (effectiveUser) {
-                  return effectiveUser.role === 'admin' || t.owner === effectiveUser.username;
+                  // Check admin, owner, or sharedWith list
+                  return effectiveUser.role === 'admin' || 
+                         t.owner === effectiveUser.username || 
+                         t.sharedWith?.includes(effectiveUser.username);
               }
               return false; 
           }
@@ -549,7 +594,7 @@ const App: React.FC = () => {
       saveTabsToCloud(newTabs);
   };
 
-  // --- Admin Tab Management (Transfer & Copy) ---
+  // --- Admin Tab Management (Transfer & Copy & Share) ---
   const handleTransferTab = (tabId: string, newOwner: string) => {
       if (!currentUser || currentUser.role !== 'admin') return;
       const newTabs = tabs.map(t => t.id === tabId ? { ...t, owner: newOwner } : t);
@@ -572,6 +617,32 @@ const App: React.FC = () => {
       const newTabs = [...tabs, newTab];
       saveTabsToCloud(newTabs);
       alert(`کپی شجره نامه برای کاربر ${targetUser} ایجاد شد.`);
+  };
+
+  const handleShareTab = (tabId: string, targetUser: string) => {
+      if (!currentUser) return;
+      // Only Admin or Owner can share
+      const tab = tabs.find(t => t.id === tabId);
+      if (!tab) return;
+      if (currentUser.role !== 'admin' && tab.owner !== currentUser.username) return alert("شما اجازه اشتراک‌گذاری این خاندان را ندارید.");
+
+      const currentShares = tab.sharedWith || [];
+      if (currentShares.includes(targetUser)) return alert("این کاربر قبلاً دسترسی دارد.");
+
+      const newTabs = tabs.map(t => t.id === tabId ? { ...t, sharedWith: [...currentShares, targetUser] } : t);
+      saveTabsToCloud(newTabs);
+      alert(`دسترسی ویرایش به کاربر ${targetUser} داده شد.`);
+  };
+
+  const handleUnshareTab = (tabId: string, targetUser: string) => {
+      if (!currentUser) return;
+      const tab = tabs.find(t => t.id === tabId);
+      if (!tab) return;
+      if (currentUser.role !== 'admin' && tab.owner !== currentUser.username) return alert("شما اجازه مدیریت دسترسی‌های این خاندان را ندارید.");
+
+      const newTabs = tabs.map(t => t.id === tabId ? { ...t, sharedWith: (t.sharedWith || []).filter(u => u !== targetUser) } : t);
+      saveTabsToCloud(newTabs);
+      alert(`دسترسی کاربر ${targetUser} حذف شد.`);
   };
 
   const handleExtractSubtree = (personId: string) => {
@@ -607,6 +678,51 @@ const App: React.FC = () => {
       setDetailedPerson(null);
       
       alert(`خاندان جدید "${newTabName}" با موفقیت ایجاد شد.`);
+  };
+
+  // --- Merged Tab Creation (Super Tree) ---
+  const handleCreateMergedTab = (selectedTabIds: string[]) => {
+      if (selectedTabIds.length < 2) return alert("لطفا حداقل ۲ خاندان را انتخاب کنید.");
+      
+      const selectedTabs = tabs.filter(t => selectedTabIds.includes(t.id));
+      if (selectedTabs.length === 0) return;
+
+      const mergedRootId = `merged-${Date.now()}`;
+      const tabTitle = `تلفیق: ${selectedTabs.map(t => t.title).join(" و ")}`;
+
+      // Create a super root containing the roots of selected tabs as children
+      const mergedData: Person = {
+          id: mergedRootId,
+          name: "اتحاد خاندان‌ها",
+          children: selectedTabs.map(t => {
+              // We tag the root of each tree with original info
+              return {
+                  ...t.data,
+                  originalTabId: t.id,
+                  originalTabTitle: t.title
+              };
+          })
+      };
+
+      const newTab: FamilyTab = {
+          id: `tab-merged-${Date.now()}`,
+          title: tabTitle,
+          data: mergedData,
+          owner: currentUser?.username || 'admin',
+          isPublic: false // Default private
+      };
+
+      const newTabs = [...tabs, newTab];
+      saveTabsToCloud(newTabs);
+      setActiveTabId(newTab.id);
+      setShowMap(false); // Close map
+      alert(`تب تلفیقی "${tabTitle}" ایجاد شد.`);
+  };
+
+  // --- Link Updating ---
+  const handleUpdateLinkedTabs = (tabId: string, linkedIds: string[]) => {
+      const newTabs = tabs.map(t => t.id === tabId ? { ...t, linkedTabIds: linkedIds } : t);
+      saveTabsToCloud(newTabs);
   };
 
   const handleUpdateActiveTree = (newData: Person) => {
@@ -649,22 +765,45 @@ const App: React.FC = () => {
      }
   }, [activeTab.data, tabs]);
 
-  // --- Navigation ---
+  // --- Navigation & Tab Switching ---
   const handlePersonNavigation = useCallback((person: ExtendedPerson | Person, keepSlideshow = false) => {
-    if (searchGlobal && (person as any).tabId && (person as any).tabId !== activeTabId) {
-        setActiveTabId((person as any).tabId);
-        setTimeout(() => {
-             const extended = flattenTree(tabs.find(t => t.id === (person as any).tabId)?.data || initialData).find(m => m.id === person.id) || null;
-             setNavigatingPerson(extended);
-             setFocusKey(prev => prev + 1);
-        }, 100);
-        return;
+    // Check if the person belongs to a different tab (e.g. from search or spouse click)
+    let targetTabId = activeTabId;
+    let personId = person.id;
+
+    if ((person as any).tabId && (person as any).tabId !== activeTabId) {
+        targetTabId = (person as any).tabId;
+    } else {
+        // Fallback: search in all tabs if not explicitly tagged
+        // This is important for "linked spouses" who might just have an ID
+        const foundTab = visibleTabs.find(t => {
+             const members = flattenTree(t.data);
+             return members.some(m => m.id === person.id);
+        });
+        if (foundTab) targetTabId = foundTab.id;
     }
-    const extended = activeMembersExtended.find(m => m.id === person.id) || null;
-    setNavigatingPerson(extended);
+
+    if (targetTabId !== activeTabId) {
+        setActiveTabId(targetTabId);
+        // Delay to allow render and tree construction
+        setTimeout(() => {
+             const targetTab = tabs.find(t => t.id === targetTabId);
+             if(targetTab) {
+                 const extended = flattenTree(targetTab.data).find(m => m.id === personId) || null;
+                 if(extended) {
+                     setNavigatingPerson(extended);
+                     setFocusKey(prev => prev + 1);
+                 }
+             }
+        }, 150);
+    } else {
+        const extended = activeMembersExtended.find(m => m.id === personId) || null;
+        setNavigatingPerson(extended);
+        setFocusKey(prev => prev + 1);
+    }
+
     if (!keepSlideshow) setSlideshowActive(false);
-    setFocusKey(prev => prev + 1);
-  }, [activeMembersExtended, searchGlobal, tabs, activeTabId]);
+  }, [activeMembersExtended, tabs, activeTabId, visibleTabs]);
 
   const handleNavigate = useCallback((direction: 'parent' | 'next-sibling' | 'prev-sibling' | 'first-child') => {
     if (!navigatingPerson) return;
@@ -762,6 +901,7 @@ const App: React.FC = () => {
         onOpenSettings={() => setShowSettings(true)}
         onOpenStats={() => setShowStats(true)}
         onOpenCalculator={() => setShowCalculator(true)}
+        onOpenMap={() => setShowMap(true)}
         searchGlobal={searchGlobal} setSearchGlobal={setSearchGlobal}
         title={headerTitle}
       />
@@ -780,6 +920,9 @@ const App: React.FC = () => {
                 usersList={localUsers}
                 onTransferTab={handleTransferTab}
                 onCopyTab={handleCopyTabToUser}
+                onUpdateLinkedTabs={handleUpdateLinkedTabs}
+                onShareTab={handleShareTab}
+                onUnshareTab={handleUnshareTab}
             />
         </div>
         
@@ -879,6 +1022,7 @@ const App: React.FC = () => {
         <PersonDetails 
           person={detailedPerson} 
           allMembers={activeMembersExtended}
+          searchScopeMembers={searchScopeMembers} 
           onClose={() => setDetailedPerson(null)} 
           onUpdate={handleUpdatePerson}
           onAddChild={handleAddChild}
@@ -888,11 +1032,12 @@ const App: React.FC = () => {
           onExtractSubtree={handleExtractSubtree}
           isAuthenticated={isAuthenticated}
           onLoginSuccess={() => setShowSettings(true)}
-          canEdit={canEditActiveTab} // Pass the calculated permission
+          canEdit={canEditActiveTab} 
         />
         
         {showStats && <StatisticsDashboard members={activeMembersExtended} onClose={() => setShowStats(false)} title={headerTitle} />}
         {showCalculator && <RelationshipCalculator allMembers={activeMembersExtended} onClose={() => setShowCalculator(false)} onSelectPersonForGraph={handlePersonNavigation} />}
+        {showMap && <TabRelationshipMap tabs={visibleTabs} onClose={() => setShowMap(false)} onSelectTab={setActiveTabId} onCreateMergedTab={handleCreateMergedTab} />}
       </main>
 
       <AuthModal 
@@ -911,7 +1056,6 @@ const App: React.FC = () => {
         onRestore={handleRestore}
         marqueeText={marqueeText}
         onUpdateMarquee={handleUpdateMarquee}
-        // Recycle Bin Props
         recycledTabs={recycledTabs}
         onRestoreTab={handleRestoreTab}
         onPermanentDeleteTab={handlePermanentDeleteTab}

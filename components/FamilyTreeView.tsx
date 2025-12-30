@@ -30,8 +30,6 @@ interface NodeOffsets {
     };
 }
 
-const DEFAULT_VERTICAL_LAYOUT: NodeOffsets = {};
-
 const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({ 
   data, 
   onSelectDetails, 
@@ -205,23 +203,51 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
       return descendants;
   }, [treeLayout, customOffsets, viewMode]);
 
-  // محاسبه لینک‌ها
-  const links = useMemo(() => {
+  // محاسبه لینک‌ها (والد-فرزند) و لینک‌های همسری (برای تب تلفیقی)
+  const allLinks = useMemo(() => {
       const nodeMap = new Map(nodes.map(n => [n.data.id, n]));
       
-      const computedLinks: Array<{source: typeof nodes[0], target: typeof nodes[0]}> = [];
+      const links: Array<{source: typeof nodes[0], target: typeof nodes[0], type: 'parent-child' | 'spouse'}> = [];
+      
+      // 1. Parent-Child Links
       nodes.forEach(node => {
           if (node.children) {
               const children = (node.data.children || []) as Person[];
               children.forEach(childData => {
                   const targetNode = nodeMap.get(childData.id);
                   if (targetNode) {
-                      computedLinks.push({ source: node, target: targetNode });
+                      links.push({ source: node, target: targetNode, type: 'parent-child' });
                   }
               });
           }
       });
-      return computedLinks;
+
+      // 2. Spouse Links (Cross-Connectors)
+      // این بخش برای نشان دادن "نقطه اشتراک" در تب تلفیقی بسیار مهم است.
+      // اگر دو نفر که همسر هم هستند در گراف موجود باشند، یک خط به هم وصل می‌شوند.
+      const processedSpousePairs = new Set<string>();
+      
+      nodes.forEach(node => {
+          const spouseId = node.data.spouseId;
+          const secondSpouseId = node.data.secondSpouseId;
+          
+          const checkAndAddSpouseLink = (sId: string | undefined) => {
+              if (sId && nodeMap.has(sId)) {
+                  const targetNode = nodeMap.get(sId)!;
+                  // جلوگیری از تکرار (A-B و B-A)
+                  const pairId = [node.data.id, sId].sort().join('-');
+                  if (!processedSpousePairs.has(pairId)) {
+                      processedSpousePairs.add(pairId);
+                      links.push({ source: node, target: targetNode, type: 'spouse' });
+                  }
+              }
+          };
+
+          checkAndAddSpouseLink(spouseId);
+          checkAndAddSpouseLink(secondSpouseId);
+      });
+
+      return links;
   }, [nodes]);
 
   const CANVAS_CENTER_X = 5000;
@@ -382,6 +408,14 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
         if (spouse) {
             onActivateNav(spouse.data);
             return;
+        } else {
+            // Check if it's a cross-tab link (handled by upper level, but user might be clicking here)
+            // If not found in nodes, pass it up if possible or just alert
+            // But onActivateNav handles navigation, so we trust it. 
+            // The prop passed to onActivateNav here is `handlePersonNavigation` from App.tsx.
+            // If spouse is not in this tree, we can try creating a dummy person obj to trigger App.tsx logic
+            onActivateNav({ id: spouseId, name: spouseName } as Person);
+            return;
         }
     }
     const spouse = nodes.find(n => {
@@ -433,7 +467,7 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
                  ${isSettingsPanelOpen ? 'w-64 md:w-72 p-4 max-h-[85vh] overflow-y-auto' : 'w-10 h-10 p-0 items-center justify-center overflow-hidden'}
                  animate-in fade-in slide-in-from-right-4
             `} onClick={(e) => e.stopPropagation()}>
-                
+                {/* Settings Panel Content ... (Same as before) */}
                 <button 
                    onClick={() => setIsSettingsPanelOpen(!isSettingsPanelOpen)}
                    className={`
@@ -455,7 +489,7 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
                             <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
                             <span className="text-sm font-bold text-slate-800">تنظیمات ساختار</span>
                         </div>
-                        
+                        {/* ... rest of settings content ... */}
                         <div className="space-y-4">
                             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                                 <label className="flex justify-between text-[10px] font-bold text-slate-500 mb-1">
@@ -469,7 +503,8 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
                                     className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-amber-500"
                                 />
                             </div>
-
+                            
+                            {/* ... Config panel for Elbow/EntryX ... */}
                             <div className={`p-3 rounded-xl border transition-all ${configNodeId ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-100 opacity-60'}`}>
                                 <div className="flex items-center gap-2 mb-4 border-b border-indigo-100 pb-2">
                                     <span className={`w-2 h-2 rounded-full ${configNodeId ? 'bg-indigo-500 animate-pulse' : 'bg-slate-300'}`}></span>
@@ -595,14 +630,17 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
             <div id="family-tree-content" className="relative" style={{ width: '10000px', height: '10000px' }}>
               <svg className="absolute top-0 left-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
                 <g transform={`translate(${CANVAS_CENTER_X}, ${CANVAS_CENTER_Y})`}>
-                  {links.map((link, i) => {
+                  {allLinks.map((link, i) => {
                     const sX = link.source.x;
                     const sY = link.source.y;
                     const tX = link.target.x;
                     const tY = link.target.y;
 
                     let pathData;
-                    if (viewMode === 'vertical_tree') {
+                    if (link.type === 'spouse') {
+                        // Draw a different line for spouses (connection point)
+                        pathData = `M${sX},${sY} L${tX},${tY}`;
+                    } else if (viewMode === 'vertical_tree') {
                         const targetId = link.target.data.id;
                         const elbowRatio = customOffsets[targetId]?.elbow ?? 0.5;
                         const entryX = customOffsets[targetId]?.entryX ?? 0;
@@ -619,6 +657,20 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
                     }
                     
                     const isSelectedLine = configNodeId === link.target.data.id;
+                    
+                    if (link.type === 'spouse') {
+                        return (
+                            <path 
+                                key={`spouse-${i}`} 
+                                d={pathData} 
+                                fill="none" 
+                                stroke="#f472b6" // Pink color for spouse connector
+                                strokeWidth="3" 
+                                strokeDasharray="6,6"
+                                className="opacity-60"
+                            />
+                        );
+                    }
 
                     return (
                       <path 
@@ -705,6 +757,7 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
         </TransformWrapper>
       </div>
 
+      {/* ... Buttons (Same as before) ... */}
       <div className="fixed bottom-24 left-4 md:bottom-12 md:left-6 flex flex-col gap-2 z-30 pointer-events-auto">
         <button
           onClick={() => handleFitToView()}

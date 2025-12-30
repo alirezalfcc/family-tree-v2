@@ -74,6 +74,7 @@ const NodeCard: React.FC<NodeCardProps> = ({
 
   const isSimple = viewMode === 'simple_tree' || viewMode === 'vertical_tree';
   const isViewRoot = viewRootId === person.id;
+  const isLinkedFamilyRoot = !!person.originalTabTitle;
 
   // Handle interactions based on Drag Mode
   const handleDetailsClick = (e: React.MouseEvent, p: Person) => {
@@ -99,14 +100,21 @@ const NodeCard: React.FC<NodeCardProps> = ({
         <div
           id={`node-${person.id}`}
           onClick={(e) => handleDetailsClick(e, person)}
-          className={`tree-node-card
+          className={`tree-node-card relative
              flex flex-col items-center justify-center cursor-pointer transition-all hover:scale-105
              px-2 py-1 bg-white
              ${isSelectedForNav ? 'ring-2 ring-amber-400 rounded-lg' : ''}
              ${isViewRoot ? 'ring-4 ring-purple-500 rounded-lg shadow-lg shadow-purple-200' : ''}
+             ${isLinkedFamilyRoot ? 'border-2 border-emerald-400' : ''}
              ${isDragMode ? 'pointer-events-none' : ''} 
           `}
         >
+          {isLinkedFamilyRoot && (
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-emerald-100 text-emerald-700 text-[7px] px-1 rounded border border-emerald-200 whitespace-nowrap z-20">
+                  {person.originalTabTitle}
+              </div>
+          )}
+
           {/* نام به صورت ساده و مشکی */}
           <div 
             className="font-bold text-black text-sm whitespace-nowrap leading-tight text-center border-b-2 border-black pb-0.5"
@@ -134,7 +142,7 @@ const NodeCard: React.FC<NodeCardProps> = ({
           {!isDragMode && (
               <button 
                   onClick={handleAnchorClick}
-                  className={`absolute -top-2 -right-2 p-1 rounded-full shadow-sm border transition-all z-10 ${isViewRoot ? 'bg-purple-600 text-white border-purple-700' : 'bg-white text-slate-400 border-slate-200 hover:text-purple-500'}`}
+                  className={`absolute -top-4 -right-4 p-1 rounded-full shadow-sm border transition-all z-10 no-export ${isViewRoot ? 'bg-purple-600 text-white border-purple-700' : 'bg-white text-slate-400 border-slate-200 hover:text-purple-500'}`}
                   title={isViewRoot ? "حذف فیلتر نمایش" : "نمایش فقط این شاخه"}
               >
                   <span className="text-sm font-bold leading-none" style={{ fontFamily: 'sans-serif' }}>&#9875;</span>
@@ -173,6 +181,7 @@ const NodeCard: React.FC<NodeCardProps> = ({
           ${isRoot ? 'w-28 h-28 ring-4 ring-amber-500/30' : ''}
           ${isSelectedForNav ? 'ring-2 ring-amber-400 border-amber-400' : ''}
           ${isViewRoot ? 'ring-4 ring-purple-500 border-purple-500 scale-110' : ''}
+          ${isLinkedFamilyRoot ? 'ring-4 ring-emerald-400 border-emerald-400' : ''}
         `}
         onClick={(e) => {
           e.stopPropagation();
@@ -212,6 +221,7 @@ const NodeCard: React.FC<NodeCardProps> = ({
         ${isRoot ? 'ring-8 ring-amber-500/20 scale-105' : ''}
         ${isSelectedForNav ? 'ring-4 ring-amber-400 border-amber-400' : ''}
         ${isViewRoot ? 'ring-4 ring-purple-500 border-purple-500 shadow-purple-500/30' : ''}
+        ${isLinkedFamilyRoot ? 'ring-4 ring-emerald-400 border-emerald-400' : ''}
         ${isDragMode ? 'cursor-move' : ''}
       `}
     >
@@ -219,7 +229,7 @@ const NodeCard: React.FC<NodeCardProps> = ({
       {!isDragMode && (
           <button 
               onClick={handleAnchorClick}
-              className={`absolute top-4 right-4 p-1.5 rounded-full backdrop-blur-md transition-all z-30 shadow-sm border
+              className={`absolute top-4 right-4 p-1.5 rounded-full backdrop-blur-md transition-all z-30 shadow-sm border no-export
                   ${isViewRoot 
                       ? 'bg-purple-600 text-white border-purple-400 hover:bg-purple-700' 
                       : `bg-white/20 text-white border-white/30 hover:bg-white/40 ${isLight ? 'text-slate-500 hover:text-purple-600' : ''}`}
@@ -232,6 +242,13 @@ const NodeCard: React.FC<NodeCardProps> = ({
                   <span className="text-xl leading-none" style={{ fontFamily: 'sans-serif' }}>&#9875;</span>
               )}
           </button>
+      )}
+
+      {/* Linked Family Badge */}
+      {isLinkedFamilyRoot && (
+         <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-emerald-500 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-lg border border-emerald-400 z-40">
+             {person.originalTabTitle}
+         </div>
       )}
 
       <div className="absolute top-3 left-3 z-20">

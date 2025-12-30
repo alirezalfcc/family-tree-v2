@@ -16,6 +16,7 @@ interface HeaderProps {
   onOpenSettings?: () => void;
   onOpenStats?: () => void; 
   onOpenCalculator?: () => void; 
+  onOpenMap?: () => void; // New prop
   searchGlobal: boolean;
   setSearchGlobal: (val: boolean) => void;
   title?: string;
@@ -35,11 +36,11 @@ const Header: React.FC<HeaderProps> = ({
   onOpenSettings,
   onOpenStats,
   onOpenCalculator,
+  onOpenMap,
   searchGlobal,
   setSearchGlobal,
   title = "شجره نامه خاندان امین عرب"
 }) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [showAbout, setShowAbout] = useState(false);
 
   return (
@@ -114,6 +115,14 @@ const Header: React.FC<HeaderProps> = ({
         </div>
           
           <div className="flex gap-1.5 md:gap-2 self-end md:self-center">
+             
+             {/* Map Button (New) */}
+             {onOpenMap && (
+                 <button onClick={onOpenMap} className="p-2 md:p-3 bg-emerald-50 border-2 border-emerald-100 rounded-xl md:rounded-2xl text-emerald-600 hover:border-emerald-300 hover:text-emerald-800 transition-all shadow-sm" title="نقشه ارتباطات خاندان‌ها">
+                    <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>
+                 </button>
+             )}
+
              {onOpenCalculator && (
                 <button onClick={onOpenCalculator} className="p-2 md:p-3 bg-pink-50 border-2 border-pink-100 rounded-xl md:rounded-2xl text-pink-600 hover:border-pink-300 hover:text-pink-800 transition-all shadow-sm" title="محاسبه نسبت فامیلی">
                     <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
@@ -122,7 +131,7 @@ const Header: React.FC<HeaderProps> = ({
 
              {onOpenSettings && (
                 <button onClick={onOpenSettings} className="p-2 md:p-3 bg-slate-100 border-2 border-slate-200 rounded-xl md:rounded-2xl text-slate-600 hover:border-slate-400 hover:text-slate-800 transition-all shadow-sm" title="تنظیمات امنیتی و اخبار">
-                    <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                 </button>
              )}
 
@@ -137,18 +146,6 @@ const Header: React.FC<HeaderProps> = ({
                    <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" /></svg>
                 </button>
              )}
-
-            {isAuthenticated && (
-              <>
-                <button onClick={onExport} className="p-2 md:p-3 bg-white border-2 border-slate-100 rounded-xl md:rounded-2xl text-slate-600 hover:border-amber-500 hover:text-amber-600 transition-all shadow-sm" title="خروجی جیسون (پشتیبان)">
-                  <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                </button>
-                <button onClick={() => fileInputRef.current?.click()} className="p-2 md:p-3 bg-white border-2 border-slate-100 rounded-xl md:rounded-2xl text-slate-600 hover:border-emerald-500 hover:text-emerald-600 transition-all shadow-sm" title="بارگذاری جیسون">
-                  <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                </button>
-                <input type="file" ref={fileInputRef} onChange={onImport} accept=".json" className="hidden" />
-              </>
-            )}
           </div>
       </header>
 
@@ -169,7 +166,7 @@ const Header: React.FC<HeaderProps> = ({
               <h2 className="text-xl font-black text-slate-800">Alireza Labaf</h2>
               <div className="text-sm font-bold text-slate-600 space-y-2">
                  <p>توسعه دهنده: <span className="text-amber-600">علیرضا لباف</span></p>
-                 <p>نسخه برنامه: <span className="text-slate-400">v3.5 Final</span></p>
+                 <p>نسخه برنامه: <span className="text-slate-400">v3.9 Final</span></p>
                  <div className="border-t border-slate-100 pt-3 mt-3">
                     <p className="flex items-center justify-center gap-2" dir="ltr">
                         <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>

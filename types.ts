@@ -27,6 +27,8 @@ export interface Person {
   description?: string;
   children?: Person[];
   sharedChildren?: (string | SharedChild)[];
+  originalTabId?: string; // برای ردیابی در حالت تلفیقی
+  originalTabTitle?: string;
 }
 
 export interface HierarchyNode extends d3.HierarchyPointNode<Person> {
@@ -39,9 +41,11 @@ export interface FamilyTab {
   title: string;
   data: Person;
   owner?: string; // نام کاربری سازنده
+  sharedWith?: string[]; // لیست کاربرانی که به این تب دسترسی ویرایش دارند
   isPublic?: boolean; // آیا برای همه قابل نمایش است؟
   deleted?: boolean; // برای حذف موقت (سطل بازیافت)
   deletedAt?: number;
+  linkedTabIds?: string[]; // لیست شناسه تب‌های مرتبط
 }
 
 export type ViewMode = 'rich_tree' | 'simple_tree' | 'vertical_tree';

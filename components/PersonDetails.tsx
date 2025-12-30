@@ -5,7 +5,8 @@ import { ExtendedPerson, getFullIdentityLabel, calculatePersianAge, getDerivedGe
 
 interface PersonDetailsProps {
   person: Person | null;
-  allMembers: ExtendedPerson[];
+  allMembers: ExtendedPerson[]; // This should now ideally include linked members too, or be used for local, and another prop for search
+  searchScopeMembers?: ExtendedPerson[]; // New Prop for searching across tabs
   onClose: () => void;
   onUpdate: (id: string, updatedFields: Partial<Person>) => void;
   onAddChild: (parentId: string, childName: string) => void;
@@ -79,7 +80,7 @@ const SmartAvatar: React.FC<{ name: string; imageUrl?: string; avatarIndex?: num
 };
 
 const PersonDetails: React.FC<PersonDetailsProps> = ({ 
-  person, allMembers, onClose, onUpdate, onAddChild, onAddExistingChild, 
+  person, allMembers, searchScopeMembers, onClose, onUpdate, onAddChild, onAddExistingChild, 
   onDelete, onMoveSubtree, onExtractSubtree, isAuthenticated, onLoginSuccess, adminCreds, canEdit = false 
 }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -88,6 +89,9 @@ const PersonDetails: React.FC<PersonDetailsProps> = ({
   const [newChildName, setNewChildName] = useState('');
   const [existingChildSearch, setExistingChildSearch] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+
+  // If searchScopeMembers is provided (from connected tabs), use it. Otherwise fallback to allMembers (current tab).
+  const searchableMembers = searchScopeMembers || allMembers;
 
   useEffect(() => {
     if (person) {
@@ -127,13 +131,13 @@ const PersonDetails: React.FC<PersonDetailsProps> = ({
           </div>
         ) : isEditing ? (
           <EditForm 
-            formData={formData} setFormData={setFormData} allMembers={allMembers} personId={person.id}
+            formData={formData} setFormData={setFormData} allMembers={searchableMembers} personId={person.id}
             onSave={handleSave} onCancel={() => setIsEditing(false)} onDelete={onDelete} onMoveSubtree={onMoveSubtree}
             deleteConfirm={deleteConfirm} setDeleteConfirm={setDeleteConfirm}
           />
         ) : (
           <ProfileView 
-            person={person} allMembers={allMembers} newChildName={newChildName} setNewChildName={setNewChildName}
+            person={person} allMembers={searchableMembers} newChildName={newChildName} setNewChildName={setNewChildName}
             existingChildSearch={existingChildSearch} setExistingChildSearch={setExistingChildSearch}
             onAddChild={onAddChild} onAddExistingChild={onAddExistingChild} isAuthenticated={isAuthenticated}
             canEdit={canEdit} onRequestEdit={() => isAuthenticated ? (canEdit ? setIsEditing(true) : alert("دسترسی ندارید")) : setShowLogin(true)}
@@ -156,6 +160,15 @@ const ProfileView: React.FC<any> = ({
   const isShahid = person.status?.includes('شهید');
   const totalKids = (person.children?.length || 0) + (person.sharedChildren?.length || 0);
   const calculatedAge = calculatePersianAge(person.birthDate, person.deathDate, person.status);
+
+  // Helper to format suggestion text with Tab Name
+  const getSuggestionLabel = (m: any) => {
+      let label = getFullIdentityLabel(m);
+      if (m.tabTitle) {
+          label += ` [${m.tabTitle}]`;
+      }
+      return label;
+  };
 
   return (
     <div className="space-y-6">
@@ -205,12 +218,19 @@ const ProfileView: React.FC<any> = ({
             </section>
 
             <section className="p-5 bg-indigo-50 rounded-[2rem] border border-indigo-100 space-y-4 shadow-inner">
-              <h3 className="text-sm font-black text-indigo-800 flex items-center gap-2">انتساب از اعضای موجود</h3>
+              <h3 className="text-sm font-black text-indigo-800 flex items-center gap-2">انتساب از اعضای موجود (هوشمند)</h3>
               <div className="flex gap-2">
                 <input list="child-move-list" placeholder="جستجوی نسب کامل..." className="flex-1 px-4 py-2.5 rounded-xl border border-indigo-200 focus:border-indigo-500 outline-none text-sm font-bold bg-white" value={existingChildSearch} onChange={e => setExistingChildSearch(e.target.value)} />
-                <datalist id="child-move-list">{allMembers.filter((m: any) => m.id !== person.id).map((m: any) => (<option key={m.id} value={getFullIdentityLabel(m)} />))}</datalist>
-                <button onClick={() => { const selected = allMembers.find((m: any) => getFullIdentityLabel(m) === existingChildSearch.trim()); if(selected) onAddExistingChild(person.id, selected.id); setExistingChildSearch(''); }} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all font-black shadow-lg">انتصاب</button>
+                <datalist id="child-move-list">{allMembers.filter((m: any) => m.id !== person.id).map((m: any) => (<option key={m.id} value={getSuggestionLabel(m)} />))}</datalist>
+                <button onClick={() => { 
+                    // Normalize search input to find match
+                    const selected = allMembers.find((m: any) => getSuggestionLabel(m) === existingChildSearch.trim() || getFullIdentityLabel(m) === existingChildSearch.trim()); 
+                    if(selected) onAddExistingChild(person.id, selected.id); 
+                    else alert("فرد یافت نشد.");
+                    setExistingChildSearch(''); 
+                }} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all font-black shadow-lg">انتصاب</button>
               </div>
+              <p className="text-[9px] text-indigo-400">شامل جستجو در خاندان‌های مرتبط</p>
             </section>
 
             {onExtractSubtree && (
@@ -218,7 +238,6 @@ const ProfileView: React.FC<any> = ({
                     <h3 className="text-sm font-black text-purple-800 flex items-center gap-2">عملیات پیشرفته</h3>
                     <button 
                         onClick={() => {
-                            // No confirm here, direct action
                             onExtractSubtree(person.id);
                         }} 
                         className="w-full px-5 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-all font-black shadow-lg flex items-center justify-center gap-2"
@@ -253,6 +272,15 @@ const EditForm: React.FC<any> = ({
   const [sharedChildSearch, setSharedChildSearch] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Helper for display label with Tab Name
+  const getSuggestionLabel = (m: any) => {
+      let label = getFullIdentityLabel(m);
+      if (m.tabTitle) {
+          label += ` [${m.tabTitle}]`;
+      }
+      return label;
+  };
 
   const updateStatus = (key: string, value: boolean) => {
       let currentStatus = formData.status || [];
@@ -293,7 +321,7 @@ const EditForm: React.FC<any> = ({
 
   const addSharedChild = () => {
       if (!sharedChildSearch.trim()) return;
-      const selected = allMembers.find((m: any) => getFullIdentityLabel(m) === sharedChildSearch.trim());
+      const selected = allMembers.find((m: any) => getSuggestionLabel(m) === sharedChildSearch.trim() || getFullIdentityLabel(m) === sharedChildSearch.trim());
       if (selected) {
           if (selected.id === personId) return alert("نمی‌توانید خود شخص را به عنوان فرزند اضافه کنید.");
           const currentShared = formData.sharedChildren || [];
@@ -314,18 +342,31 @@ const EditForm: React.FC<any> = ({
   // Smart Handler for Spouse and Move Target inputs to link IDs automatically
   const handleSmartInputChange = (e: React.ChangeEvent<HTMLInputElement>, fieldName: 'spouseName' | 'secondSpouseName', idFieldName: 'spouseId' | 'secondSpouseId') => {
       const val = e.target.value;
-      const match = allMembers.find((m: any) => getFullIdentityLabel(m) === val);
       
+      // Attempt to find exact match in suggestions
+      const match = allMembers.find((m: any) => getSuggestionLabel(m) === val || getFullIdentityLabel(m) === val);
+      
+      // Use clean name for display, store ID internally
+      let displayName = val;
+      let linkedId = undefined;
+
+      if (match) {
+          // If match found, use their Name + Surname for display, but keep ID for link
+          // We strip the [Tab Name] for the text input display usually, or keep it if user prefers clarity.
+          // Let's keep it simple: Use user input as name, store ID if matched.
+          linkedId = match.id;
+      }
+
       setFormData((prev: any) => ({
           ...prev,
-          [fieldName]: val,
-          [idFieldName]: match ? match.id : undefined // Link ID if found, otherwise unlink
+          [fieldName]: displayName,
+          [idFieldName]: linkedId 
       }));
   };
 
   const handleMoveSubtreeClick = () => {
     if (!moveTargetName) return;
-    const target = allMembers.find((m: any) => getFullIdentityLabel(m) === moveTargetName.trim());
+    const target = allMembers.find((m: any) => getSuggestionLabel(m) === moveTargetName.trim() || getFullIdentityLabel(m) === moveTargetName.trim());
     if (target) { setMoveTarget(target); setShowMoveConfirm(true); } else { alert("فرد مقصد یافت نشد."); }
   };
 
@@ -333,10 +374,10 @@ const EditForm: React.FC<any> = ({
 
   return (
     <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200 pb-10 relative">
-      {/* Suggestions Data List */}
+      {/* Suggestions Data List with Family Source */}
       <datalist id="all-members-list-edit">
           {allMembers.map((m: any) => (
-              <option key={m.id} value={getFullIdentityLabel(m)} />
+              <option key={m.id} value={getSuggestionLabel(m)} />
           ))}
       </datalist>
 
@@ -389,14 +430,14 @@ const EditForm: React.FC<any> = ({
 
       <div className="space-y-2">
           <div>
-              <label className="text-[10px] font-black text-slate-400 mb-1 block uppercase">همسر اول</label>
+              <label className="text-[10px] font-black text-slate-400 mb-1 block uppercase">همسر اول (جستجو در همه خاندان‌های مرتبط)</label>
               <input type="text" list="all-members-list-edit" value={formData.spouseName} onChange={e => handleSmartInputChange(e, 'spouseName', 'spouseId')} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 outline-none text-sm font-bold" placeholder="نام همسر..." />
-              {formData.spouseId && <span className="text-[9px] text-green-600 px-2 font-bold">✓ متصل به پروفایل</span>}
+              {formData.spouseId && <span className="text-[9px] text-green-600 px-2 font-bold flex items-center gap-1">✓ متصل به پروفایل <span className="opacity-50 text-[8px]">(شناسه: {formData.spouseId.substring(0,6)}...)</span></span>}
           </div>
           <div>
-              <label className="text-[10px] font-black text-slate-400 mb-1 block uppercase">همسر دوم</label>
+              <label className="text-[10px] font-black text-slate-400 mb-1 block uppercase">همسر دوم (جستجو در همه خاندان‌های مرتبط)</label>
               <input type="text" list="all-members-list-edit" value={formData.secondSpouseName} onChange={e => handleSmartInputChange(e, 'secondSpouseName', 'secondSpouseId')} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-amber-500 outline-none text-sm font-bold" placeholder="نام همسر..." />
-              {formData.secondSpouseId && <span className="text-[9px] text-green-600 px-2 font-bold">✓ متصل به پروفایل</span>}
+              {formData.secondSpouseId && <span className="text-[9px] text-green-600 px-2 font-bold flex items-center gap-1">✓ متصل به پروفایل <span className="opacity-50 text-[8px]">(شناسه: {formData.secondSpouseId.substring(0,6)}...)</span></span>}
           </div>
       </div>
       
@@ -444,7 +485,7 @@ const EditForm: React.FC<any> = ({
           
           <div className="flex gap-2 mb-3">
              <input list="child-share-list" placeholder="جستجو برای اتصال فرزند..." className="flex-1 px-3 py-2 rounded-lg border border-slate-200 focus:border-indigo-500 outline-none text-xs font-bold bg-white" value={sharedChildSearch} onChange={e => setSharedChildSearch(e.target.value)} />
-             <datalist id="child-share-list">{allMembers.filter((m: any) => m.id !== personId).map((m: any) => (<option key={m.id} value={getFullIdentityLabel(m)} />))}</datalist>
+             <datalist id="child-share-list">{allMembers.filter((m: any) => m.id !== personId).map((m: any) => (<option key={m.id} value={getSuggestionLabel(m)} />))}</datalist>
              <button type="button" onClick={addSharedChild} className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700">افزودن</button>
           </div>
 

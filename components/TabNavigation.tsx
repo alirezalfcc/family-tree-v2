@@ -15,6 +15,9 @@ interface TabNavigationProps {
   usersList?: any[];
   onTransferTab?: (tabId: string, newOwner: string) => void;
   onCopyTab?: (tabId: string, targetUser: string) => void;
+  onUpdateLinkedTabs?: (tabId: string, linkedIds: string[]) => void;
+  onShareTab?: (tabId: string, targetUser: string) => void; // New
+  onUnshareTab?: (tabId: string, targetUser: string) => void; // New
 }
 
 const TabNavigation: React.FC<TabNavigationProps> = ({
@@ -29,7 +32,10 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
   currentUser,
   usersList = [],
   onTransferTab,
-  onCopyTab
+  onCopyTab,
+  onUpdateLinkedTabs,
+  onShareTab,
+  onUnshareTab
 }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [newTabTitle, setNewTabTitle] = useState('');
@@ -41,10 +47,14 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
   // Delete confirmation
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  // Management Modal (Transfer/Copy)
+  // Management Modal (Transfer/Copy/Link/Share)
   const [manageTabId, setManageTabId] = useState<string | null>(null);
   const [transferTarget, setTransferTarget] = useState('');
   const [copyTarget, setCopyTarget] = useState('');
+  const [shareTarget, setShareTarget] = useState(''); // New
+  
+  // Linking State
+  const [selectedLinks, setSelectedLinks] = useState<Set<string>>(new Set());
 
   const handleAdd = () => {
     if (newTabTitle.trim()) {
@@ -65,15 +75,38 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
       setManageTabId(tab.id);
       setTransferTarget(tab.owner || 'admin');
       setCopyTarget(tab.owner || 'admin');
+      setShareTarget(usersList[0]?.username || '');
+      setSelectedLinks(new Set(tab.linkedTabIds || []));
   };
+
+  const toggleLink = (id: string) => {
+      setSelectedLinks(prev => {
+          const newSet = new Set(prev);
+          if (newSet.has(id)) newSet.delete(id);
+          else newSet.add(id);
+          return newSet;
+      });
+  };
+
+  const saveLinks = () => {
+      if (manageTabId && onUpdateLinkedTabs) {
+          onUpdateLinkedTabs(manageTabId, Array.from(selectedLinks));
+          alert("ارتباطات بروزرسانی شد.");
+      }
+  };
+
+  const currentManagedTab = tabs.find(t => t.id === manageTabId);
 
   return (
     <>
       <div className="flex items-center gap-2 px-4 py-2 overflow-x-auto no-scrollbar border-b border-slate-200/50 bg-white/50 backdrop-blur-sm">
         {tabs.map(tab => {
           // Can edit if admin OR if owner matches
-          const canEdit = isAuthenticated && (currentUser?.role === 'admin' || currentUser?.username === tab.owner);
-          const isAdmin = currentUser?.role === 'admin';
+          // Also allow edit if in sharedWith list? Usually only owner/admin can manage tab settings.
+          // Let's restrict management to Owner/Admin, but edit to shared.
+          const isOwnerOrAdmin = isAuthenticated && (currentUser?.role === 'admin' || currentUser?.username === tab.owner);
+          const isSharedWithMe = isAuthenticated && tab.sharedWith?.includes(currentUser?.username || '');
+          const canManage = isOwnerOrAdmin; 
 
           return (
             <div 
@@ -86,8 +119,12 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
               `}
               onClick={() => onSelectTab(tab.id)}
             >
-              {/* Visibility Icon */}
-              {tab.isPublic ? (
+              {/* Visibility/Shared Icon */}
+              {isSharedWithMe ? (
+                  <svg className={`w-3 h-3 ${activeTabId === tab.id ? 'text-white/70' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" title="اشتراک‌گذاری شده با شما">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+              ) : tab.isPublic ? (
                   <svg className={`w-3 h-3 ${activeTabId === tab.id ? 'text-white/70' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <title>عمومی (Public)</title>
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -116,18 +153,16 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
                 <span className="text-sm truncate max-w-[150px]">{tab.title}</span>
               )}
 
-              {canEdit && activeTabId === tab.id && (
+              {canManage && activeTabId === tab.id && (
                 <div className="flex gap-1 mr-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   {/* Admin Management Button */}
-                  {isAdmin && (
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); openManageModal(tab); }}
-                        className="p-1 hover:bg-black/20 rounded text-white"
-                        title="مدیریت (انتقال/کپی)"
-                      >
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                      </button>
-                  )}
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); openManageModal(tab); }}
+                    className="p-1 hover:bg-black/20 rounded text-white"
+                    title="مدیریت (لینک/انتقال/اشتراک)"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                  </button>
 
                   {/* Toggle Visibility */}
                   <button 
@@ -204,67 +239,134 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
       {/* Management Modal */}
       {manageTabId && (
           <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setManageTabId(null)}>
-              <div className="bg-white p-6 rounded-3xl shadow-2xl border border-slate-100 max-w-sm w-full animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-                  <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-2">
-                      <h3 className="font-black text-slate-800 text-lg">مدیریت مالکیت</h3>
+              <div className="bg-white p-6 rounded-3xl shadow-2xl border border-slate-100 max-w-sm w-full animate-in zoom-in-95 duration-200 flex flex-col gap-4 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                      <h3 className="font-black text-slate-800 text-lg">مدیریت خاندان</h3>
                       <button onClick={() => setManageTabId(null)} className="text-slate-400 hover:text-slate-600"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                   </div>
                   
-                  {/* Transfer Section */}
-                  <div className="mb-6">
-                      <label className="text-xs font-bold text-slate-500 mb-1 block">انتقال مالکیت به:</label>
-                      <div className="flex gap-2">
+                  {/* Share Tab (Collaboration) */}
+                  <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
+                      <label className="text-xs font-bold text-blue-800 mb-2 block flex items-center gap-1">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                          اشتراک‌گذاری (همکاری):
+                      </label>
+                      <div className="flex gap-2 mb-2">
                           <select 
-                             className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-sm font-bold"
-                             value={transferTarget}
-                             onChange={e => setTransferTarget(e.target.value)}
+                             className="flex-1 bg-white border border-blue-200 rounded-xl px-2 py-2 text-sm font-bold"
+                             value={shareTarget}
+                             onChange={e => setShareTarget(e.target.value)}
                           >
-                             {usersList.map(u => (
+                             {usersList.filter(u => u.username !== currentUser?.username && u.username !== currentManagedTab?.owner).map(u => (
                                  <option key={u.username} value={u.username}>{u.username}</option>
                              ))}
                           </select>
                           <button 
                              onClick={() => {
-                                 if (onTransferTab) {
-                                     onTransferTab(manageTabId, transferTarget);
-                                     setManageTabId(null);
+                                 if (onShareTab && shareTarget) {
+                                     onShareTab(manageTabId!, shareTarget);
                                  }
                              }}
-                             className="bg-amber-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-amber-600 transition-colors"
+                             className="bg-blue-600 text-white px-3 py-2 rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors"
                           >
-                              انتقال
+                              اشتراک
                           </button>
                       </div>
-                      <p className="text-[9px] text-amber-600 mt-1">مالک فعلی دسترسی خود را از دست خواهد داد.</p>
+                      
+                      {currentManagedTab?.sharedWith && currentManagedTab.sharedWith.length > 0 && (
+                          <div className="space-y-1 mt-2">
+                              <p className="text-[10px] text-blue-600 font-bold mb-1">دسترسی‌های فعال:</p>
+                              {currentManagedTab.sharedWith.map(user => (
+                                  <div key={user} className="flex justify-between items-center bg-white px-2 py-1 rounded border border-blue-100">
+                                      <span className="text-xs text-slate-600">{user}</span>
+                                      <button onClick={() => onUnshareTab && onUnshareTab(manageTabId!, user)} className="text-red-500 hover:bg-red-50 rounded p-0.5">
+                                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                      </button>
+                                  </div>
+                              ))}
+                          </div>
+                      )}
                   </div>
 
-                  {/* Copy Section */}
-                  <div>
-                      <label className="text-xs font-bold text-slate-500 mb-1 block">ایجاد کپی برای:</label>
-                      <div className="flex gap-2">
-                          <select 
-                             className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-sm font-bold"
-                             value={copyTarget}
-                             onChange={e => setCopyTarget(e.target.value)}
-                          >
-                             {usersList.map(u => (
-                                 <option key={u.username} value={u.username}>{u.username}</option>
-                             ))}
-                          </select>
-                          <button 
-                             onClick={() => {
-                                 if (onCopyTab) {
-                                     onCopyTab(manageTabId, copyTarget);
-                                     setManageTabId(null);
-                                 }
-                             }}
-                             className="bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-600 transition-colors"
-                          >
-                              کپی
-                          </button>
+                  {/* Linked Tabs Section */}
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                      <label className="text-xs font-bold text-slate-700 mb-2 block flex items-center gap-1">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                          خاندان‌های مرتبط (لینک شده):
+                      </label>
+                      <div className="max-h-32 overflow-y-auto space-y-1 mb-2">
+                          {tabs.filter(t => t.id !== manageTabId && !t.deleted).map(t => (
+                              <label key={t.id} className="flex items-center gap-2 p-1.5 hover:bg-slate-100 rounded cursor-pointer">
+                                  <input 
+                                    type="checkbox" 
+                                    checked={selectedLinks.has(t.id)} 
+                                    onChange={() => toggleLink(t.id)}
+                                    className="w-3.5 h-3.5 rounded text-amber-500"
+                                  />
+                                  <span className="text-xs font-bold text-slate-600 truncate">{t.title}</span>
+                              </label>
+                          ))}
                       </div>
-                      <p className="text-[9px] text-indigo-600 mt-1">یک نسخه جدید ایجاد می‌شود و اصل تب حفظ می‌شود.</p>
+                      <button onClick={saveLinks} className="w-full bg-amber-500 text-white py-1.5 rounded-lg text-xs font-bold hover:bg-amber-600">ذخیره ارتباطات</button>
+                      <p className="text-[9px] text-slate-400 mt-1">با لینک کردن، هنگام جستجوی همسر/فرزند، این خاندان‌ها هم جستجو می‌شوند.</p>
                   </div>
+
+                  {/* Transfer & Copy (Only if admin) */}
+                  {currentUser?.role === 'admin' && (
+                    <>
+                      <div className="border-t border-slate-100 pt-2">
+                          <label className="text-xs font-bold text-slate-500 mb-1 block">انتقال مالکیت به:</label>
+                          <div className="flex gap-2">
+                              <select 
+                                 className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-sm font-bold"
+                                 value={transferTarget}
+                                 onChange={e => setTransferTarget(e.target.value)}
+                              >
+                                 {usersList.map(u => (
+                                     <option key={u.username} value={u.username}>{u.username}</option>
+                                 ))}
+                              </select>
+                              <button 
+                                 onClick={() => {
+                                     if (onTransferTab) {
+                                         onTransferTab(manageTabId!, transferTarget);
+                                         setManageTabId(null);
+                                     }
+                                 }}
+                                 className="bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-900 transition-colors"
+                              >
+                                  انتقال
+                              </button>
+                          </div>
+                      </div>
+
+                      <div>
+                          <label className="text-xs font-bold text-slate-500 mb-1 block">ایجاد کپی برای:</label>
+                          <div className="flex gap-2">
+                              <select 
+                                 className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-sm font-bold"
+                                 value={copyTarget}
+                                 onChange={e => setCopyTarget(e.target.value)}
+                              >
+                                 {usersList.map(u => (
+                                     <option key={u.username} value={u.username}>{u.username}</option>
+                                 ))}
+                              </select>
+                              <button 
+                                 onClick={() => {
+                                     if (onCopyTab) {
+                                         onCopyTab(manageTabId!, copyTarget);
+                                         setManageTabId(null);
+                                     }
+                                 }}
+                                 className="bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-600 transition-colors"
+                              >
+                                  کپی
+                              </button>
+                          </div>
+                      </div>
+                    </>
+                  )}
 
               </div>
           </div>
