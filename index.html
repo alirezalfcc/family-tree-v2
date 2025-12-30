@@ -7,24 +7,10 @@
     <title>شجره نامه خاندان امین عرب</title>
     <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@100;400;700;900&display=swap" rel="stylesheet">
     
-    <!-- Tailwind CSS CDN: Ensures styles work in Chat Preview where build steps might be skipped -->
+    <!-- Tailwind CSS for Chat Preview & Development -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: {
-              sans: ['Vazirmatn', 'sans-serif'],
-            },
-            animation: {
-              'bounce-slow': 'bounce 3s infinite',
-            }
-          }
-        }
-      }
-    </script>
-
-    <!-- Custom CSS Fallback for environment without PostCSS -->
+    
+    <!-- Custom CSS Fallback -->
     <style>
       body {
         background-color: #f8f5f2;

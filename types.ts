@@ -10,23 +10,23 @@ export interface Person {
   id: string;
   name: string;
   surname?: string;
-  gender?: 'male' | 'female'; // فیلد جدید جنسیت
-  mobile?: string; // فیلد جدید موبایل
-  email?: string; // فیلد جدید ایمیل
-  imageUrl?: string; // فیلد تصویر (Base64)
-  avatarIndex?: number; // ایندکس آواتار انتخابی (0 تا 4)
-  birthDate?: string; // تاریخ تولد شمسی
-  deathDate?: string; // تاریخ وفات شمسی
+  gender?: 'male' | 'female';
+  mobile?: string;
+  email?: string;
+  imageUrl?: string;
+  avatarIndex?: number;
+  birthDate?: string;
+  deathDate?: string;
   parent?: string;
   spouseName?: string;
-  spouseId?: string; // فیلد جدید: اگر همسر در درخت موجود باشد، شناسه او ذخیره می‌شود
-  secondSpouseName?: string; // نام همسر دوم
-  secondSpouseId?: string; // شناسه همسر دوم
-  status?: string[]; // e.g., "Single", "Deceased", "Martyr", "Married"
+  spouseId?: string;
+  secondSpouseName?: string;
+  secondSpouseId?: string;
+  status?: string[];
   title?: string;
   description?: string;
   children?: Person[];
-  sharedChildren?: (string | SharedChild)[]; // لیست نام فرزندان (یا آبجکت شامل شناسه) جهت نمایش متنی
+  sharedChildren?: (string | SharedChild)[];
 }
 
 export interface HierarchyNode extends d3.HierarchyPointNode<Person> {
@@ -38,7 +38,17 @@ export interface FamilyTab {
   id: string;
   title: string;
   data: Person;
+  owner?: string; // نام کاربری سازنده
+  isPublic?: boolean; // آیا برای همه قابل نمایش است؟
+  deleted?: boolean; // برای حذف موقت (سطل بازیافت)
+  deletedAt?: number;
 }
 
 export type ViewMode = 'rich_tree' | 'simple_tree' | 'vertical_tree';
 export type ListFilter = 'all' | 'male' | 'female';
+
+export interface User {
+  username: string;
+  role: 'admin' | 'user';
+  createdAt?: number;
+}

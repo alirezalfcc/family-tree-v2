@@ -7,8 +7,9 @@ import FloatingNav from './components/FloatingNav';
 import TabNavigation from './components/TabNavigation';
 import StatisticsDashboard from './components/StatisticsDashboard';
 import RelationshipCalculator from './components/RelationshipCalculator';
-import { familyData as initialData, aliMashallahData } from './data';
-import { Person, FamilyTab, ViewMode, ListFilter } from './types';
+import AuthModal from './components/AuthModal';
+import { familyData as initialData } from './data';
+import { Person, FamilyTab, ViewMode, ListFilter, User } from './types';
 import { 
   flattenTree, 
   ExtendedPerson, 
@@ -20,60 +21,69 @@ import {
 } from './utils/genealogy';
 import { exportToSVG } from './utils/svgExporter';
 
-// نسخه برنامه جهت اطمینان از آپدیت بودن بیلد
-const APP_VERSION = "v2.4";
+const APP_VERSION = "v3.5 Final";
+
+// Local Storage Keys
+const LS_KEYS = {
+    DATA: 'family_tree_data_v4',
+    USERS: 'family_tree_users_v1',
+    SESSION: 'auth_session'
+};
 
 const App: React.FC = () => {
-  // State for Tabs
-  const [tabs, setTabs] = useState<FamilyTab[]>([
-    { id: 'default', title: 'خاندان امین عرب', data: initialData },
-    { id: 'alimashallah', title: 'خاندان علی ماشاءالله', data: aliMashallahData }
-  ]);
-  const [activeTabId, setActiveTabId] = useState<string>('default');
+  // --- Data States ---
+  const [tabs, setTabs] = useState<FamilyTab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string>('');
 
-  // View States
+  // --- Auth States ---
+  const [currentUser, setCurrentUser] = useState<{ username: string; role: 'admin' | 'user' } | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [localUsers, setLocalUsers] = useState<any[]>([]); // Manage users locally for offline mode
+  
+  // --- UI States ---
   const [viewMode, setViewMode] = useState<ViewMode>('rich_tree'); 
   const [listFilter, setListFilter] = useState<ListFilter>('all');
   const [searchGlobal, setSearchGlobal] = useState(false);
-
-  // General States
   const [isLoaded, setIsLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(false); 
   const [offlineReason, setOfflineReason] = useState<string>('');
   
   const [navigatingPerson, setNavigatingPerson] = useState<ExtendedPerson | null>(null);
   const [focusKey, setFocusKey] = useState(0);
-
   const [detailedPerson, setDetailedPerson] = useState<Person | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Slideshow States
   const [slideshowActive, setSlideshowActive] = useState(false);
   const [slideDelay, setSlideDelay] = useState(3); 
 
-  // Settings & Auth & Stats & Calculator
-  const [showSettings, setShowSettings] = useState(false);
+  const [showSettings, setShowSettings] = useState(false); // Used for AuthModal
   const [showStats, setShowStats] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
-  const [adminCreds, setAdminCreds] = useState({ user: 'admin123', pass: 'ce245b118' });
-  const [loginUser, setLoginUser] = useState('');
-  const [loginPass, setLoginPass] = useState('');
-  // New Credentials State
-  const [changePassMode, setChangePassMode] = useState(false);
-  const [newUser, setNewUser] = useState('');
-  const [newPass, setNewPass] = useState('');
   
-  const [marqueeText, setMarqueeText] = useState("بسم الله الرحمن الرحیم  **************  ✨ به شجره نامه خاندان امین عرب خوش آمدید ✨  **************  راهنما: برای مشاهده جزئیات و ویرایش اطلاعات، روی کارت شخص کلیک کنید.  **************  جهت ثبت اطلاعات جدید با شماره 989196600545+ (علیرضا لباف) تماس بگیرید.");
-  const [editingMarquee, setEditingMarquee] = useState('');
-
-  // Layout Configuration (Custom Offsets)
+  const [marqueeText, setMarqueeText] = useState("خوش آمدید. نسخه پیش‌نمایش (بدون سرور).");
+  
   const [layoutConfig, setLayoutConfig] = useState<Record<string, any>>({ all: {}, male: {}, female: {} });
 
-  // محاسبات
-  const activeTab = useMemo(() => tabs.find(t => t.id === activeTabId) || tabs[0], [tabs, activeTabId]);
+  // --- Computed ---
+  // Filter out soft-deleted tabs for the main view
+  const visibleTabs = useMemo(() => tabs.filter(t => !t.deleted), [tabs]);
   
+  // Get recycled tabs (for admin)
+  const recycledTabs = useMemo(() => tabs.filter(t => t.deleted), [tabs]);
+
+  const activeTab = useMemo(() => visibleTabs.find(t => t.id === activeTabId) || visibleTabs[0] || { id: 'dummy', title: 'خالی', data: { id: 'root', name: 'خالی', children: [] } }, [visibleTabs, activeTabId]);
+  
+  // **PERMISSION LOGIC**: Can edit ONLY if isAuthenticated AND (Admin OR Owner)
+  // Public tabs are viewable by all, but editable only by owner/admin.
+  const canEditActiveTab = useMemo(() => {
+      if (!isAuthenticated || !currentUser) return false;
+      if (currentUser.role === 'admin') return true;
+      // If it's a dummy tab or undefined, no edit
+      if (!activeTab || activeTab.id === 'dummy') return false;
+      return activeTab.owner === currentUser.username;
+  }, [isAuthenticated, currentUser, activeTab]);
+
   const filteredTreeData = useMemo(() => {
      if (listFilter === 'all') return activeTab.data;
      const filtered = filterTree(activeTab.data, listFilter);
@@ -86,196 +96,402 @@ const App: React.FC = () => {
 
   const allTabsMembers = useMemo(() => {
     if (!searchGlobal) return [];
-    let all: any[] = [];
-    tabs.forEach(tab => {
+    return visibleTabs.flatMap(tab => {
         const members = flattenTree(tab.data);
-        const labeledMembers = members.map(m => ({...m, tabId: tab.id, tabTitle: tab.title}));
-        all = [...all, ...labeledMembers];
+        return members.map(m => ({...m, tabId: tab.id, tabTitle: tab.title}));
     });
-    return all;
-  }, [tabs, searchGlobal]);
+  }, [visibleTabs, searchGlobal]);
 
   const searchResults = useMemo(() => {
     if (!searchTerm || searchTerm.trim().length < 2) return [];
-    
     const term = searchTerm.trim().toLowerCase();
     const source = searchGlobal ? allTabsMembers : activeMembersExtended;
-
     return source.filter((person: any) => {
         const fullName = `${person.name} ${person.surname || ''}`.toLowerCase();
         return fullName.includes(term) || person.name.toLowerCase().includes(term);
     }).slice(0, 20);
   }, [searchTerm, searchGlobal, allTabsMembers, activeMembersExtended]);
 
-  // --- توابع ارتباط با API ---
-  const apiCall = async (path: string, method: 'GET' | 'POST' | 'PUT' = 'GET', body?: any) => {
+  // Load Local Users on Mount
+  useEffect(() => {
+      const storedUsers = localStorage.getItem(LS_KEYS.USERS);
+      if (storedUsers) {
+          setLocalUsers(JSON.parse(storedUsers));
+      } else {
+          // Default Admin for offline mode
+          const defaultAdmin = { username: '1', password: '1', role: 'admin' };
+          setLocalUsers([defaultAdmin]);
+          localStorage.setItem(LS_KEYS.USERS, JSON.stringify([defaultAdmin]));
+      }
+  }, []);
+
+  // --- API Functions (Optimized for Preview) ---
+  const apiCall = async (path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', body?: any) => {
+      // 1. FAST EXIT: If we already detected offline mode, don't even try fetch.
+      if (isOfflineMode) {
+          throw new Error("API_UNAVAILABLE");
+      }
+
+      const controller = new AbortController();
+      // Reduced timeout to 1.5s to fail faster in preview if backend is missing
+      const timeoutId = setTimeout(() => controller.abort(), 1500); 
+
       try {
           const options: RequestInit = {
               method,
-              headers: { 'Content-Type': 'application/json' }
+              headers: { 'Content-Type': 'application/json' },
+              signal: controller.signal
           };
           if (body) options.body = JSON.stringify(body);
           
           const response = await fetch(`/api/proxy?path=${encodeURIComponent(path)}`, options);
+          clearTimeout(timeoutId);
           
-          // مدیریت خطای 404: 
-          // 1. اگر HTML برگشت یعنی خود فایل پروکسی پیدا نشده.
-          // 2. اگر JSON برگشت یعنی پروکسی اجرا شده اما فایربیس پیدا نشده.
-          if (response.status === 404) {
-             const contentType = response.headers.get("content-type");
-             if (contentType && contentType.includes("application/json")) {
-                 const err = await response.json();
-                 throw new Error(err.detail || "Firebase Not Found");
-             }
-             // اگر HTML است، یعنی مسیر پروکسی غلط است
-             throw new Error("PROXY_NOT_FOUND");
+          // Check content type
+          const contentType = response.headers.get("content-type");
+          if (contentType && (contentType.includes("text/html") || contentType.includes("text/plain"))) {
+             throw new Error("API_UNAVAILABLE");
           }
 
-          if (!response.ok) {
-              let errorMsg = `API Error: ${response.status}`;
-              try {
-                  const errJson = await response.json();
-                  if (errJson.detail) errorMsg = errJson.detail;
-                  else if (errJson.error) errorMsg = errJson.error;
-              } catch(e) {}
-              throw new Error(errorMsg);
+          const text = await response.text();
+          if (!text) throw new Error("API_UNAVAILABLE"); // Empty response
+
+          let json;
+          try {
+             json = JSON.parse(text);
+          } catch (e) {
+             console.warn("JSON Parse Error (likely preview mode):", e);
+             throw new Error("API_UNAVAILABLE");
           }
-          return await response.json();
-      } catch (error) {
+
+          if (response.status === 404) throw new Error("API Route Not Found");
+          
+          if (!response.ok) {
+             throw new Error(json.detail || json.error || `Error ${response.status}`);
+          }
+          return json;
+      } catch (error: any) {
+          clearTimeout(timeoutId);
+          if (error.name === 'AbortError' || error.message === "API_UNAVAILABLE" || error.message.includes("JSON") || error.message.includes("Unexpected token")) {
+              throw new Error("API_UNAVAILABLE");
+          }
           throw error;
       }
   };
 
-  const loadLocalData = () => {
-      const savedData = localStorage.getItem('family_tree_data_v4');
-      if (savedData) setTabs(JSON.parse(savedData));
-      
-      const savedCreds = localStorage.getItem('admin_creds');
-      if (savedCreds) setAdminCreds(JSON.parse(savedCreds));
+  // --- Auth Handlers (Hybrid: Server -> Local Fallback) ---
+  const handleLogin = async (username: string, pass: string) => {
+      // Offline / Local Login Logic
+      const performLocalLogin = () => {
+          const foundUser = localUsers.find(u => u.username === username && u.password === pass);
+          if (foundUser) {
+              completeLogin(foundUser.username, foundUser.role);
+              return true;
+          }
+          return false;
+      };
 
-      const savedMarquee = localStorage.getItem('marquee_text');
-      if (savedMarquee) setMarqueeText(savedMarquee);
-      
-      const savedMultiLayout = localStorage.getItem('tree_layout_multi');
-      if (savedMultiLayout) setLayoutConfig(JSON.parse(savedMultiLayout));
+      if (isOfflineMode) {
+          if (performLocalLogin()) return;
+          throw new Error("نام کاربری یا رمز عبور اشتباه است (آفلاین)");
+      }
+
+      try {
+          const res = await apiCall('_system/login', 'POST', { username, password: pass });
+          if (res.success) {
+              completeLogin(res.username, res.role);
+          } else {
+              throw new Error(res.message);
+          }
+      } catch (err: any) {
+          if (err.message === "API_UNAVAILABLE" || err.message === "Failed to fetch") {
+              console.warn("Backend unavailable, checking local storage.");
+              setIsOfflineMode(true); 
+              setOfflineReason("عدم دسترسی به سرور");
+              
+              if (performLocalLogin()) {
+                  alert("توجه: شما در حالت پیش‌نمایش (آفلاین) وارد شدید.");
+                  return;
+              }
+              throw new Error("ارتباط با سرور برقرار نشد و کاربر آفلاین یافت نشد.");
+          } else {
+              throw err;
+          }
+      }
   };
 
-  const fetchData = async () => {
+  const completeLogin = (username: string, role: 'admin' | 'user') => {
+      const userObj = { username, role };
+      setIsAuthenticated(true);
+      setCurrentUser(userObj);
+      localStorage.setItem(LS_KEYS.SESSION, JSON.stringify(userObj));
+      setShowSettings(false);
+      // Re-process tabs visibility with new user
+      fetchData(userObj); 
+  };
+
+  const handleLogout = () => {
+      setIsAuthenticated(false);
+      setCurrentUser(null);
+      localStorage.removeItem(LS_KEYS.SESSION);
+      setShowSettings(false);
+      // Immediately re-process data to hide private tabs
+      fetchData(null); 
+  };
+
+  const handleCreateUser = async (user: string, pass: string, role: 'admin' | 'user') => {
+      if (!currentUser || currentUser.role !== 'admin') throw new Error("Access Denied");
+      
+      if (!isOfflineMode) {
+        try {
+            await apiCall('_system/manage_user', 'POST', { targetUser: user, password: pass, role });
+        } catch (err: any) {
+            if (err.message !== "API_UNAVAILABLE") throw err;
+        }
+      }
+
+      const newLocalUsers = [...localUsers.filter(u => u.username !== user), { username: user, password: pass, role }];
+      setLocalUsers(newLocalUsers);
+      localStorage.setItem(LS_KEYS.USERS, JSON.stringify(newLocalUsers));
+  };
+
+  const handleUpdateUser = async (oldUsername: string, newUsername: string, newPass: string, newRole: 'admin' | 'user') => {
+      if (!currentUser || currentUser.role !== 'admin') throw new Error("Access Denied");
+      
+      // Update Local State First
+      let newLocalUsers = [...localUsers];
+      
+      // Check if username is changing
+      if (oldUsername !== newUsername) {
+          if (newLocalUsers.some(u => u.username === newUsername)) {
+              throw new Error("نام کاربری جدید تکراری است");
+          }
+          // Remove old, add new
+          newLocalUsers = newLocalUsers.filter(u => u.username !== oldUsername);
+          newLocalUsers.push({ username: newUsername, password: newPass, role: newRole });
+      } else {
+          // Just update password/role
+          newLocalUsers = newLocalUsers.map(u => 
+              u.username === oldUsername ? { ...u, password: newPass, role: newRole } : u
+          );
+      }
+      
+      setLocalUsers(newLocalUsers);
+      localStorage.setItem(LS_KEYS.USERS, JSON.stringify(newLocalUsers));
+
+      // Attempt API sync
+      if (!isOfflineMode) {
+          try {
+              await apiCall('_system/manage_user', 'POST', { targetUser: newUsername, password: newPass, role: newRole });
+          } catch(e) {}
+      }
+      
+      alert("کاربر با موفقیت ویرایش شد.");
+  };
+
+  const handleDeleteUser = async (targetUser: string) => {
+      if (!currentUser || currentUser.role !== 'admin') throw new Error("Access Denied");
+      if (targetUser === currentUser.username) throw new Error("نمیتوانید حساب خودتان را حذف کنید.");
+      // PROTECT ROOT ADMIN
+      if (targetUser === '1') throw new Error("حساب مدیر اصلی سیستم (1) قابل حذف نیست.");
+
+      const newLocalUsers = localUsers.filter(u => u.username !== targetUser);
+      setLocalUsers(newLocalUsers);
+      localStorage.setItem(LS_KEYS.USERS, JSON.stringify(newLocalUsers));
+
+      const newTabs = tabs.map(t => {
+          if (t.owner === targetUser) {
+              return { ...t, deleted: true, deletedAt: Date.now() }; 
+          }
+          return t;
+      });
+      saveTabsToCloud(newTabs);
+
+      if (!isOfflineMode) {
+          try {
+              // API call if exists
+          } catch (e) { console.warn("Delete user API failed", e); }
+      }
+      
+      alert(`کاربر ${targetUser} حذف شد و خاندان‌های او به سطل بازیافت منتقل شدند.`);
+  };
+
+  const handleChangePassword = async (newPass: string) => {
+      if (!currentUser) return;
+      
+      // Update local state
+      const newLocalUsers = localUsers.map(u => 
+          u.username === currentUser.username ? { ...u, password: newPass } : u
+      );
+      setLocalUsers(newLocalUsers);
+      localStorage.setItem(LS_KEYS.USERS, JSON.stringify(newLocalUsers));
+      
+      // API Call
+      if (!isOfflineMode) {
+          try {
+              // Note: using manage_user for self update if API supports it, otherwise fallback
+              await apiCall('_system/manage_user', 'POST', { targetUser: currentUser.username, password: newPass, role: currentUser.role });
+          } catch(e) {}
+      }
+      alert("رمز عبور با موفقیت تغییر کرد.");
+  };
+
+  const handleBackup = async () => {
+      if (!currentUser || currentUser.role !== 'admin') throw new Error("Access Denied");
       try {
-          setIsOfflineMode(false);
-          const data = await apiCall(''); 
-          
-          if (data) {
-              setOfflineReason('');
-              let loadedTabs: FamilyTab[] = [];
-              if (data.familyTabs) {
-                  loadedTabs = data.familyTabs;
-              } else if (data.familyTree) {
-                  loadedTabs = [{ id: 'default', title: 'خاندان امین عرب', data: data.familyTree }];
-              } else {
-                  loadedTabs = [
-                      { id: 'default', title: 'خاندان امین عرب', data: initialData },
-                      { id: 'alimashallah', title: 'خاندان علی ماشاءالله', data: aliMashallahData }
-                  ];
-              }
+         return await apiCall('_system/backup', 'GET');
+      } catch (err: any) {
+         if (err.message === "API_UNAVAILABLE") {
+             return { familyTabs: tabs, settings: { marquee: marqueeText }, layoutConfig, users: localUsers };
+         }
+         throw err;
+      }
+  };
 
-              if (!loadedTabs.some(t => t.id === 'alimashallah')) {
-                  loadedTabs.push({ id: 'alimashallah', title: 'خاندان علی ماشاءالله', data: aliMashallahData });
+  const handleRestore = async (data: any) => {
+      if (!currentUser || currentUser.role !== 'admin') throw new Error("Access Denied");
+      try {
+          return await apiCall('_system/restore', 'POST', data);
+      } catch (err: any) {
+          if (err.message === "API_UNAVAILABLE") {
+              if (data.familyTabs) setTabs(data.familyTabs);
+              if (data.settings?.marquee) setMarqueeText(data.settings.marquee);
+              if (data.users) {
+                  setLocalUsers(data.users);
+                  localStorage.setItem(LS_KEYS.USERS, JSON.stringify(data.users));
               }
-
-              setTabs(loadedTabs);
-              setActiveTabId(prev => loadedTabs.find((t: any) => t.id === prev) ? prev : loadedTabs[0].id);
-
-              if (data.settings) {
-                  setAdminCreds({ user: data.settings.user, pass: data.settings.pass });
-                  setMarqueeText(data.settings.marquee || marqueeText);
-              }
-              
-              if (data.layoutConfig) {
-                  if (data.layoutConfig.all || data.layoutConfig.male || data.layoutConfig.female) {
-                      setLayoutConfig(data.layoutConfig);
-                  } else {
-                      setLayoutConfig({ all: data.layoutConfig, male: {}, female: {} });
-                  }
-              }
-          } else {
-              console.warn("Database is empty or invalid structure.");
-              loadLocalData(); 
+              localStorage.setItem(LS_KEYS.DATA, JSON.stringify(data.familyTabs || tabs));
+              return;
           }
+          throw err;
+      }
+  };
+
+  // --- Data Loading ---
+  const fetchData = async (userOverride?: { username: string; role: 'admin' | 'user' } | null) => {
+      try {
+          let data;
+          if (!isOfflineMode) {
+            try {
+               data = await apiCall(''); 
+               setIsOfflineMode(false);
+            } catch (e) { throw e; }
+          }
+          if (!data) throw new Error("Fetching local");
+          processFetchedData(data, userOverride);
       } catch (error: any) {
-          console.warn("Using Local Storage due to API error:", error);
-          setIsOfflineMode(true);
-          
-          let reason = error.message;
-          if (error.message.includes("MISSING_ENV")) {
-              reason = "تنظیمات Environment Variables در کلادفلر ناقص است (Secret یا ID).";
-          } else if (error.message === "PROXY_NOT_FOUND") {
-              reason = "فایل functions/api/proxy.js هنوز در سرور شناسایی نشده (صبر کنید یا دوباره Deploy کنید).";
-          } else if (error.message.includes("Database Not Found") || error.message.includes("404")) {
-              reason = "فایربیس پیدا نشد. لطفا متغیر FIREBASE_DB_URL را در کلادفلر تنظیم کنید.";
-          } else if (error.message.includes("Unauthorized") || error.message.includes("401")) {
-              reason = "رمز دیتابیس (Secret) اشتباه است.";
-          } else if (error.message.includes("Failed to fetch")) {
-              reason = "خطای شبکه یا DNS.";
+          console.warn("Offline/Mock Mode Active:", error);
+          if (!isOfflineMode) {
+              setIsOfflineMode(true);
+              setOfflineReason("اتصال به سرور برقرار نیست (حالت پیش‌نمایش)");
           }
-          setOfflineReason(reason);
-
-          loadLocalData();
+          const localData = localStorage.getItem(LS_KEYS.DATA);
+          if (localData) {
+              const parsed = JSON.parse(localData);
+              processFetchedData({ familyTabs: parsed }, userOverride);
+          } else {
+              processFetchedData({ 
+                  familyTabs: [{ 
+                      id: 'default', 
+                      title: 'خاندان پیش‌فرض', 
+                      data: initialData, 
+                      isPublic: true, 
+                      owner: 'admin' 
+                  }] 
+              }, userOverride);
+          }
       } finally {
           setIsLoaded(true);
       }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const processFetchedData = (data: any, userOverride?: { username: string; role: 'admin' | 'user' } | null) => {
+      if (!data) return;
+      let loadedTabs: FamilyTab[] = [];
+      if (Array.isArray(data)) {
+          loadedTabs = data.map((t: any) => ({ ...t, isPublic: true, owner: 'admin' }));
+      } else if (data.familyTabs) {
+          loadedTabs = data.familyTabs.map((t: any) => ({
+              ...t, 
+              isPublic: t.isPublic ?? true, 
+              owner: t.owner ?? 'admin'
+          }));
+      } else if (data.id && data.name) {
+          loadedTabs = [{ 
+              id: 'default', 
+              title: 'خاندان اصلی', 
+              data: data, 
+              isPublic: true, 
+              owner: 'admin' 
+          }];
+      } else {
+          loadedTabs = [{ id: 'default', title: 'خاندان پیش‌فرض', data: initialData, isPublic: true, owner: 'admin' }];
+      }
+      
+      if (data.settings?.marquee) setMarqueeText(data.settings.marquee);
+      if (data.layoutConfig) setLayoutConfig(data.layoutConfig);
 
-  // --- ذخیره‌سازی اطلاعات ---
-  
+      let effectiveUser = userOverride;
+      if (effectiveUser === undefined) {
+         if (currentUser) {
+             effectiveUser = currentUser;
+         } else {
+             const session = localStorage.getItem(LS_KEYS.SESSION);
+             if (session) {
+                 effectiveUser = JSON.parse(session);
+                 if (!currentUser) {
+                     setCurrentUser(effectiveUser);
+                     setIsAuthenticated(true);
+                 }
+             } else {
+                 effectiveUser = null;
+             }
+         }
+      }
+
+      const accessibleTabs = loadedTabs.filter(t => {
+          if (t.deleted) {
+              return effectiveUser && effectiveUser.role === 'admin';
+          }
+          if (!t.isPublic) {
+              if (effectiveUser) {
+                  return effectiveUser.role === 'admin' || t.owner === effectiveUser.username;
+              }
+              return false; 
+          }
+          return true; 
+      });
+
+      setTabs(accessibleTabs);
+      
+      const nonDeleted = accessibleTabs.filter(t => !t.deleted);
+      if (nonDeleted.length > 0) {
+          setActiveTabId(prev => nonDeleted.some(t => t.id === prev) ? prev : nonDeleted[0].id);
+      }
+  };
+
+  useEffect(() => { fetchData(); }, []);
+
+  // --- CRUD Operations ---
   const saveTabsToCloud = useCallback((newTabs: FamilyTab[]) => {
     setTabs(newTabs);
-    localStorage.setItem('family_tree_data_v4', JSON.stringify(newTabs));
-
+    localStorage.setItem(LS_KEYS.DATA, JSON.stringify(newTabs));
     if (!isOfflineMode) {
       setIsSaving(true);
       apiCall('familyTabs', 'PUT', newTabs)
         .then(() => setTimeout(() => setIsSaving(false), 500))
-        .catch((err) => {
-          setIsSaving(false);
-          if (err.message === "PROXY_NOT_FOUND") {
-             console.info("Cloud save failed, offline mode.");
-             setIsOfflineMode(true);
-          } else {
-             console.error("Save failed", err);
-          }
-        });
+        .catch((err) => { setIsSaving(false); });
     }
   }, [isOfflineMode]);
 
-  const handleSaveLayout = useCallback((newLayout: any) => {
-      setLayoutConfig(prev => {
-          const updatedFullConfig = { ...prev, [listFilter]: newLayout };
-          localStorage.setItem('tree_layout_multi', JSON.stringify(updatedFullConfig));
-          
-          if (!isOfflineMode) {
-              apiCall('layoutConfig', 'PUT', updatedFullConfig)
-                .catch(err => console.error("Layout Save Failed", err));
-          }
-          return updatedFullConfig;
-      });
-  }, [isOfflineMode, listFilter]);
-
-  // --- توابع مدیریتی ---
-  
-  const handleAddTab = (title: string) => {
+  const handleAddTab = (title: string, isPublic: boolean) => {
+    if (!currentUser) return alert("لطفا وارد شوید");
     const newTab: FamilyTab = {
         id: `tab-${Date.now()}`,
         title,
-        data: {
-            id: `root-${Date.now()}`,
-            name: title,
-            children: []
-        }
+        data: { id: `root-${Date.now()}`, name: title, children: [] },
+        owner: currentUser.username,
+        isPublic
     };
     const newTabs = [...tabs, newTab];
     saveTabsToCloud(newTabs);
@@ -287,10 +503,38 @@ const App: React.FC = () => {
     saveTabsToCloud(newTabs);
   };
 
+  const handleTogglePrivacy = (id: string) => {
+      const newTabs = tabs.map(t => t.id === id ? { ...t, isPublic: !t.isPublic } : t);
+      saveTabsToCloud(newTabs);
+  };
+
   const handleDeleteTab = (id: string) => {
-    const newTabs = tabs.filter(t => t.id !== id);
+    const newTabs = tabs.map(t => t.id === id ? { ...t, deleted: true, deletedAt: Date.now() } : t);
     saveTabsToCloud(newTabs);
-    if (activeTabId === id) setActiveTabId(newTabs[0]?.id || '');
+    const remaining = newTabs.filter(t => !t.deleted && (t.isPublic || (currentUser && (currentUser.role === 'admin' || t.owner === currentUser.username))));
+    if (activeTabId === id) setActiveTabId(remaining[0]?.id || '');
+  };
+
+  // Restore with optional new owner assignment
+  const handleRestoreTab = (id: string, newOwner?: string) => {
+      const newTabs = tabs.map(t => {
+          if (t.id === id) {
+              return { 
+                  ...t, 
+                  deleted: false, 
+                  deletedAt: undefined,
+                  owner: newOwner || t.owner // Assign new owner if provided
+              };
+          }
+          return t;
+      });
+      saveTabsToCloud(newTabs);
+      alert(newOwner ? `خاندان بازیابی شد و به کاربر ${newOwner} انتقال یافت.` : "خاندان بازیابی شد.");
+  };
+
+  const handlePermanentDeleteTab = (id: string) => {
+      const newTabs = tabs.filter(t => t.id !== id);
+      saveTabsToCloud(newTabs);
   };
 
   const handleUpdateActiveTree = (newData: Person) => {
@@ -316,26 +560,24 @@ const App: React.FC = () => {
   }, [activeTab.data, tabs]);
   
   const handleMoveSubtree = useCallback((nodeId: string, newParentId: string) => {
-      if (nodeId === activeTab.data.id) return alert("امکان جابجایی ریشه درخت وجود ندارد.");
+      if (nodeId === activeTab.data.id) return alert("ریشه قابل جابجایی نیست");
       try {
           const updatedTree = movePersonInTree(activeTab.data, newParentId, nodeId);
           handleUpdateActiveTree(updatedTree);
           setDetailedPerson(null);
-          alert("انتقال شاخه با موفقیت انجام شد");
       } catch (err: any) { alert(err.message); }
   }, [activeTab.data, tabs]);
 
   const handleDeletePerson = useCallback((id: string) => {
-     if (id === activeTab.data.id) return alert("امکان حذف ریشه درخت وجود ندارد.");
+     if (id === activeTab.data.id) return alert("ریشه قابل حذف نیست");
      const updatedTree = removePersonFromTree(activeTab.data, id);
      if (updatedTree) {
         handleUpdateActiveTree(updatedTree);
         setDetailedPerson(null);
-        if (navigatingPerson?.id === id) setNavigatingPerson(null);
      }
-  }, [activeTab.data, tabs, navigatingPerson]);
+  }, [activeTab.data, tabs]);
 
-  // --- جستجو و ناوبری ---
+  // --- Navigation ---
   const handlePersonNavigation = useCallback((person: ExtendedPerson | Person, keepSlideshow = false) => {
     if (searchGlobal && (person as any).tabId && (person as any).tabId !== activeTabId) {
         setActiveTabId((person as any).tabId);
@@ -346,21 +588,11 @@ const App: React.FC = () => {
         }, 100);
         return;
     }
-
     const extended = activeMembersExtended.find(m => m.id === person.id) || null;
     setNavigatingPerson(extended);
     if (!keepSlideshow) setSlideshowActive(false);
     setFocusKey(prev => prev + 1);
   }, [activeMembersExtended, searchGlobal, tabs, activeTabId]);
-
-  const handleSelectByName = useCallback((name: string) => {
-    const target = activeMembersExtended.find(m => m.name.trim() === name.trim());
-    if (target) {
-        handlePersonNavigation(target);
-    } else {
-        alert(`فردی با نام "${name}" در این خاندان یافت نشد.`);
-    }
-  }, [activeMembersExtended, handlePersonNavigation]);
 
   const handleNavigate = useCallback((direction: 'parent' | 'next-sibling' | 'prev-sibling' | 'first-child') => {
     if (!navigatingPerson) return;
@@ -386,86 +618,20 @@ const App: React.FC = () => {
     }
   }, [navigatingPerson, activeMembersExtended, handlePersonNavigation]);
 
-  // --- ایمپورت و اکسپورت ---
-  const exportData = () => {
-    const dataStr = JSON.stringify(tabs, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `family-tree-backup-${new Date().toLocaleDateString('fa-IR')}.json`;
-    link.click();
+  const handleSaveLayout = useCallback((newLayout: any) => {
+      setLayoutConfig(prev => {
+          const updatedFullConfig = { ...prev, [listFilter]: newLayout };
+          if (!isOfflineMode) apiCall('layoutConfig', 'PUT', updatedFullConfig).catch(() => {});
+          return updatedFullConfig;
+      });
+  }, [isOfflineMode, listFilter]);
+
+  const handleUpdateMarquee = (text: string) => {
+      setMarqueeText(text);
+      if (!isOfflineMode) apiCall('settings', 'PUT', { marquee: text }).catch(() => {});
   };
 
-  const handleExportSVG = () => {
-     exportToSVG('family-tree-content', `family-tree-${activeTab.title}-${viewMode}`);
-  };
-
-  const importData = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const json = JSON.parse(event.target?.result as string);
-        if (Array.isArray(json)) {
-            if (window.confirm("آیا مطمئن هستید؟ تمام اطلاعات فعلی جایگزین خواهد شد.")) {
-                saveTabsToCloud(json);
-                setActiveTabId(json[0].id);
-            }
-        } else if (json.id && json.name) {
-             if (window.confirm("فایل حاوی یک درخت تکی است. آیا به عنوان یک خاندان جدید اضافه شود؟")) {
-                 const newTab = { id: `import-${Date.now()}`, title: json.name, data: json };
-                 saveTabsToCloud([...tabs, newTab]);
-                 setActiveTabId(newTab.id);
-             }
-        }
-      } catch { alert("فایل نامعتبر است."); }
-    };
-    reader.readAsText(file);
-  };
-  
-  // --- تنظیمات و لاگین ---
-  const handleAdminLogin = () => {
-    if (loginUser === adminCreds.user && loginPass === adminCreds.pass) {
-        setIsAuthenticated(true);
-        setLoginUser(''); setLoginPass('');
-        setEditingMarquee(marqueeText); 
-        setNewUser(adminCreds.user); setNewPass(adminCreds.pass);
-    } else { alert("نام کاربری یا رمز عبور اشتباه است."); }
-  };
-
-  const saveSettings = () => {
-    const finalUser = changePassMode && newUser ? newUser : adminCreds.user;
-    const finalPass = changePassMode && newPass ? newPass : adminCreds.pass;
-    
-    if (changePassMode && (!newUser || !newPass)) {
-        alert("لطفا نام کاربری و رمز عبور جدید را وارد کنید.");
-        return;
-    }
-
-    const newCreds = { user: finalUser, pass: finalPass };
-    setAdminCreds(newCreds);
-    localStorage.setItem('admin_creds', JSON.stringify(newCreds));
-    
-    setMarqueeText(editingMarquee);
-    localStorage.setItem('marquee_text', editingMarquee);
-
-    if (!isOfflineMode) {
-        setIsSaving(true);
-        apiCall('settings', 'PUT', { user: finalUser, pass: finalPass, marquee: editingMarquee })
-        .then(() => { setIsSaving(false); setShowSettings(false); alert("تنظیمات با موفقیت ذخیره شد."); })
-        .catch(() => { setIsSaving(false); alert("خطا در ذخیره سازی در فایربیس."); });
-    } else { setShowSettings(false); alert("تنظیمات بصورت محلی ذخیره شد."); }
-  };
-
-  const headerTitle = useMemo(() => {
-    const title = activeTab.title;
-    if (title.trim().startsWith('خاندان')) {
-        return `شجره نامه ${title}`;
-    }
-    return `شجره نامه خاندان ${title}`;
-  }, [activeTab.title]);
+  const headerTitle = activeTab.title.startsWith('خاندان') ? `شجره نامه ${activeTab.title}` : `شجره نامه خاندان ${activeTab.title}`;
 
   if (!isLoaded) return <div className="flex items-center justify-center h-screen bg-[#f8f5f2]">در حال بارگذاری...</div>;
 
@@ -475,75 +641,71 @@ const App: React.FC = () => {
       
       {isOfflineMode && (
           <div className="bg-amber-100 text-amber-800 text-xs py-2 px-4 flex justify-between items-center border-b border-amber-200">
-             <div className="font-bold flex items-center gap-2">
-                 <span>⚠️ حالت آفلاین: {offlineReason || "امکان ارتباط با سرور وجود ندارد."}</span>
-             </div>
-             <button onClick={() => fetchData()} className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1 rounded text-xs font-bold transition-colors">تلاش مجدد</button>
+             <span>⚠️ حالت آفلاین (پیش‌نمایش): {offlineReason}</span>
+             <button onClick={() => fetchData()} className="bg-amber-500 text-white px-2 py-1 rounded">تلاش مجدد</button>
           </div>
       )}
 
       <Header 
-        searchTerm={searchTerm}
-        setSearchTerm={setSearchTerm}
-        searchResults={searchResults}
-        onSelectPerson={(p) => { handlePersonNavigation(p); setSearchTerm(''); }}
-        onExport={exportData}
-        onImport={importData}
+        searchTerm={searchTerm} setSearchTerm={setSearchTerm} searchResults={searchResults}
+        onSelectPerson={handlePersonNavigation}
+        onExport={() => {}} 
+        onImport={(e) => {}} 
         isAuthenticated={isAuthenticated}
-        onExportImage={() => {}}
-        onExportSVG={handleExportSVG}
-        onOpenSettings={() => { setLoginUser(''); setLoginPass(''); setShowSettings(true); setChangePassMode(false); setEditingMarquee(marqueeText); }}
+        onExportImage={() => {}} onExportSVG={() => exportToSVG('family-tree-content', 'tree')}
+        onOpenSettings={() => setShowSettings(true)}
         onOpenStats={() => setShowStats(true)}
         onOpenCalculator={() => setShowCalculator(true)}
-        searchGlobal={searchGlobal}
-        setSearchGlobal={setSearchGlobal}
+        searchGlobal={searchGlobal} setSearchGlobal={setSearchGlobal}
         title={headerTitle}
       />
 
       <div className="bg-white border-b border-slate-200 flex flex-col md:flex-row justify-between items-end md:items-center pr-1 md:pr-2 gap-1 md:gap-2 z-40">
         <div className="flex-1 overflow-x-auto w-full md:w-auto order-2 md:order-1">
             <TabNavigation 
-                tabs={tabs} 
-                activeTabId={activeTabId} 
+                tabs={visibleTabs} activeTabId={activeTabId} 
                 onSelectTab={setActiveTabId} 
                 onAddTab={handleAddTab}
                 onRenameTab={handleRenameTab}
                 onDeleteTab={handleDeleteTab}
+                onTogglePrivacy={handleTogglePrivacy}
                 isAuthenticated={isAuthenticated}
+                currentUser={currentUser}
             />
         </div>
         
-        <div className="flex items-center gap-2 p-1 md:p-2 shrink-0 order-1 md:order-2 self-center md:self-auto w-full md:w-auto justify-between md:justify-end border-b md:border-b-0 border-slate-100 pb-2 md:pb-0">
+        <div className="flex items-center gap-2 p-1 order-1 md:order-2">
              <div className="flex bg-slate-100 rounded-lg p-1">
-                <button onClick={() => setListFilter('all')} className={`px-2 md:px-3 py-1 text-[10px] md:text-xs rounded-md transition-all ${listFilter === 'all' ? 'bg-white shadow text-slate-800 font-bold' : 'text-slate-500'}`}>همه</button>
-                <button onClick={() => setListFilter('male')} className={`px-2 md:px-3 py-1 text-[10px] md:text-xs rounded-md transition-all ${listFilter === 'male' ? 'bg-white shadow text-blue-600 font-bold' : 'text-slate-500'}`}>پسران</button>
-                <button onClick={() => setListFilter('female')} className={`px-2 md:px-3 py-1 text-[10px] md:text-xs rounded-md transition-all ${listFilter === 'female' ? 'bg-white shadow text-pink-600 font-bold' : 'text-slate-500'}`}>دختران</button>
+                <button onClick={() => setListFilter('all')} className={`p-2 rounded-md transition-all ${listFilter === 'all' ? 'bg-white shadow text-slate-800' : 'text-slate-400 hover:text-slate-600'}`} title="نمایش همه">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+                </button>
+                <button onClick={() => setListFilter('male')} className={`p-2 rounded-md transition-all ${listFilter === 'male' ? 'bg-white shadow' : 'hover:bg-slate-200'} text-black`} title="فقط مردان">
+                   {/* Male Person Icon (Black) */}
+                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                     <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+                     <circle cx="12" cy="7" r="4" />
+                   </svg>
+                </button>
+                <button onClick={() => setListFilter('female')} className={`p-2 rounded-md transition-all ${listFilter === 'female' ? 'bg-white shadow' : 'hover:bg-slate-200'} text-pink-500`} title="فقط زنان">
+                   {/* Female Person Icon (Pink) */}
+                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                     <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+                     <circle cx="12" cy="7" r="4" />
+                   </svg>
+                </button>
              </div>
+             
+             <div className="w-px h-6 bg-slate-200 mx-1"></div>
 
              <div className="flex bg-slate-100 rounded-xl p-1 border border-slate-200">
-                <button 
-                    onClick={() => setViewMode('rich_tree')}
-                    className={`flex items-center gap-1 px-2 md:px-3 py-1.5 rounded-lg transition-all ${viewMode === 'rich_tree' ? 'bg-white shadow-sm text-amber-600 font-bold' : 'text-slate-500'}`}
-                    title="نمای کارتی (گرافیکی)"
-                >
-                    <svg className="w-3 h-3 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
-                    <span className="text-[10px] md:text-xs hidden xs:inline">کارت</span>
+                <button onClick={() => setViewMode('rich_tree')} className={`p-2 rounded-lg transition-all ${viewMode === 'rich_tree' ? 'bg-white shadow text-amber-600' : 'text-slate-400 hover:text-amber-500'}`} title="نمایش کارتی">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                 </button>
-                <button 
-                    onClick={() => setViewMode('simple_tree')}
-                    className={`flex items-center gap-1 px-2 md:px-3 py-1.5 rounded-lg transition-all ${viewMode === 'simple_tree' ? 'bg-white shadow-sm text-amber-600 font-bold' : 'text-slate-500'}`}
-                    title="نمای چارت (افقی دست‌نویس)"
-                >
-                    <svg className="w-3 h-3 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                    <span className="text-[10px] md:text-xs hidden xs:inline">چارت</span>
+                <button onClick={() => setViewMode('simple_tree')} className={`p-2 rounded-lg transition-all ${viewMode === 'simple_tree' ? 'bg-white shadow text-amber-600' : 'text-slate-400 hover:text-amber-500'}`} title="نمایش چارت سازمانی">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" /></svg>
                 </button>
-                 <button 
-                    onClick={() => setViewMode('vertical_tree')}
-                    className={`flex items-center gap-1 px-2 md:px-3 py-1.5 rounded-lg transition-all ${viewMode === 'vertical_tree' ? 'bg-white shadow-sm text-amber-600 font-bold' : 'text-slate-500'}`}
-                    title="نمای عمودی (کپی چارت)"
-                >
-                    <svg className="w-3 h-3 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                    <span className="text-[10px] md:text-xs hidden xs:inline">عمودی</span>
+                <button onClick={() => setViewMode('vertical_tree')} className={`p-2 rounded-lg transition-all ${viewMode === 'vertical_tree' ? 'bg-white shadow text-amber-600' : 'text-slate-400 hover:text-amber-500'}`} title="نمایش عمودی">
+                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg>
                 </button>
              </div>
         </div>
@@ -555,7 +717,6 @@ const App: React.FC = () => {
                 data={filteredTreeData} 
                 onSelectDetails={setDetailedPerson} 
                 onActivateNav={handlePersonNavigation}
-                onSelectByName={handleSelectByName} 
                 selectedPersonId={detailedPerson?.id}
                 navigatingPersonId={navigatingPerson?.id}
                 focusKey={focusKey}
@@ -564,11 +725,10 @@ const App: React.FC = () => {
                 onSaveLayout={handleSaveLayout}
                 isAuthenticated={isAuthenticated}
             />
-             
              <div className="floating-nav">
                 <FloatingNav 
                     person={navigatingPerson}
-                    onClose={() => { setNavigatingPerson(null); setSlideshowActive(false); }}
+                    onClose={() => setNavigatingPerson(null)}
                     onNavigate={handleNavigate}
                     isSidebarOpen={!!detailedPerson}
                     slideshowActive={slideshowActive}
@@ -589,73 +749,35 @@ const App: React.FC = () => {
           onDelete={handleDeletePerson}
           onMoveSubtree={handleMoveSubtree}
           isAuthenticated={isAuthenticated}
-          onLoginSuccess={() => setIsAuthenticated(true)}
-          adminCreds={adminCreds} 
+          onLoginSuccess={() => setShowSettings(true)}
+          canEdit={canEditActiveTab} // Pass the calculated permission
         />
         
-        {showStats && (
-            <StatisticsDashboard 
-                members={activeMembersExtended} 
-                onClose={() => setShowStats(false)} 
-                title={headerTitle}
-            />
-        )}
-
-        {showCalculator && (
-            <RelationshipCalculator 
-                allMembers={activeMembersExtended}
-                onClose={() => setShowCalculator(false)}
-                onSelectPersonForGraph={handlePersonNavigation}
-            />
-        )}
+        {showStats && <StatisticsDashboard members={activeMembersExtended} onClose={() => setShowStats(false)} title={headerTitle} />}
+        {showCalculator && <RelationshipCalculator allMembers={activeMembersExtended} onClose={() => setShowCalculator(false)} onSelectPersonForGraph={handlePersonNavigation} />}
       </main>
 
-      {showSettings && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[110] flex items-center justify-center p-4">
-           <div className="bg-white rounded-[2rem] p-6 w-full max-w-sm shadow-2xl settings-modal animate-in zoom-in-95 border border-slate-200 overflow-y-auto max-h-[90vh]">
-               <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-3 border-b pb-4">
-                   {isAuthenticated ? 'پنل مدیریت و تنظیمات' : 'ورود مدیر'}
-               </h3>
-               {!isAuthenticated ? (
-                  <div className="space-y-4">
-                     <input type="text" placeholder="نام کاربری" value={loginUser} onChange={e => setLoginUser(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 outline-none text-left font-bold" dir="ltr" />
-                     <input type="password" placeholder="رمز عبور" value={loginPass} onChange={e => setLoginPass(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 outline-none text-left font-bold" dir="ltr" />
-                     <div className="flex gap-2 mt-6">
-                       <button onClick={handleAdminLogin} className="flex-1 bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-900 transition-colors">ورود</button>
-                       <button onClick={() => setShowSettings(false)} className="px-5 bg-slate-100 text-slate-500 py-3 rounded-xl font-bold hover:bg-slate-200">لغو</button>
-                     </div>
-                  </div>
-               ) : (
-                  <div className="space-y-6">
-                     <div>
-                        <label className="text-xs font-bold text-slate-500 mb-2 block">متن نوار متحرک (اخبار):</label>
-                        <textarea rows={3} value={editingMarquee} onChange={e => setEditingMarquee(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:border-amber-500 outline-none" placeholder="متن اخبار..." />
-                     </div>
-                     
-                     <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                        <label className="flex items-center gap-2 cursor-pointer mb-3">
-                            <input type="checkbox" checked={changePassMode} onChange={e => setChangePassMode(e.target.checked)} className="w-4 h-4 accent-amber-600" />
-                            <span className="text-sm font-bold text-slate-800">تغییر نام کاربری و رمز عبور</span>
-                        </label>
-                        
-                        {changePassMode && (
-                            <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
-                                <input type="text" placeholder="نام کاربری جدید" value={newUser} onChange={e => setNewUser(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-bold text-left" dir="ltr" />
-                                <input type="text" placeholder="رمز عبور جدید" value={newPass} onChange={e => setNewPass(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-bold text-left" dir="ltr" />
-                                <p className="text-[10px] text-red-500 font-bold">* لطفا رمز جدید را حتما به خاطر بسپارید.</p>
-                            </div>
-                        )}
-                     </div>
-
-                     <div className="flex gap-2 mt-2 pt-4 border-t border-slate-100">
-                       <button onClick={saveSettings} className="flex-1 bg-amber-600 text-white py-3 rounded-xl font-bold hover:bg-amber-700 shadow-lg shadow-amber-200">ذخیره تغییرات</button>
-                       <button onClick={() => setShowSettings(false)} className="px-5 bg-slate-100 text-slate-500 py-3 rounded-xl font-bold hover:bg-slate-200">بستن</button>
-                     </div>
-                  </div>
-               )}
-           </div>
-        </div>
-      )}
+      <AuthModal 
+        isOpen={showSettings} 
+        onClose={() => setShowSettings(false)}
+        isAuthenticated={isAuthenticated}
+        currentUser={currentUser}
+        onLogin={handleLogin}
+        onLogout={handleLogout}
+        onCreateUser={handleCreateUser}
+        onDeleteUser={handleDeleteUser}
+        onUpdateUser={handleUpdateUser} 
+        onChangePassword={handleChangePassword} 
+        usersList={localUsers} 
+        onBackup={handleBackup}
+        onRestore={handleRestore}
+        marqueeText={marqueeText}
+        onUpdateMarquee={handleUpdateMarquee}
+        // Recycle Bin Props
+        recycledTabs={recycledTabs}
+        onRestoreTab={handleRestoreTab}
+        onPermanentDeleteTab={handlePermanentDeleteTab}
+      />
 
       <footer className="fixed bottom-0 left-0 w-full bg-black text-white z-[60] border-t border-slate-800">
         <div className="flex items-center justify-between h-8 px-2">
@@ -663,9 +785,12 @@ const App: React.FC = () => {
                 <div className="animate-marquee whitespace-nowrap text-[11px] font-bold text-amber-400">{marqueeText}</div>
             </div>
             <div className="text-[9px] text-slate-500 flex items-center gap-2 whitespace-nowrap pl-2">
+                {currentUser && (
+                    <span className="text-white font-bold hidden sm:inline-block">{currentUser.username}</span>
+                )}
+                {/* Status Circle: Green for Current User */}
+                <span className={`w-2 h-2 rounded-full ${currentUser ? 'bg-green-500' : (!isOfflineMode ? 'bg-emerald-500' : 'bg-red-500')}`}></span>
                 <span>{APP_VERSION}</span>
-                <span>علیرضا لباف</span>
-                <span className={`w-2 h-2 rounded-full ${!isOfflineMode ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
             </div>
         </div>
       </footer>
