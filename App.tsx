@@ -23,7 +23,7 @@ import {
 } from './utils/genealogy';
 import { exportToSVG } from './utils/svgExporter';
 
-const APP_VERSION = "v3.9 Final";
+const APP_VERSION = "v4.1 Final";
 
 // Local Storage Keys
 const LS_KEYS = {
@@ -172,8 +172,8 @@ const App: React.FC = () => {
       }
 
       const controller = new AbortController();
-      // Reduced timeout to 1.5s to fail faster in preview if backend is missing
-      const timeoutId = setTimeout(() => controller.abort(), 1500); 
+      // Increased timeout to 15s to allow for serverless cold starts
+      const timeoutId = setTimeout(() => controller.abort(), 15000); 
 
       try {
           const options: RequestInit = {
@@ -189,6 +189,7 @@ const App: React.FC = () => {
           // Check content type
           const contentType = response.headers.get("content-type");
           if (contentType && (contentType.includes("text/html") || contentType.includes("text/plain"))) {
+             // Treat HTML responses (often 404/500 from hosting) as API unavailability
              throw new Error("API_UNAVAILABLE");
           }
 
@@ -211,7 +212,10 @@ const App: React.FC = () => {
           return json;
       } catch (error: any) {
           clearTimeout(timeoutId);
-          if (error.name === 'AbortError' || error.message === "API_UNAVAILABLE" || error.message.includes("JSON") || error.message.includes("Unexpected token")) {
+          if (error.name === 'AbortError') {
+              throw new Error("API_UNAVAILABLE"); // Timeout treated as offline/unavailable
+          }
+          if (error.message === "API_UNAVAILABLE" || error.message.includes("JSON") || error.message.includes("Unexpected token")) {
               throw new Error("API_UNAVAILABLE");
           }
           throw error;
@@ -243,8 +247,8 @@ const App: React.FC = () => {
               throw new Error(res.message);
           }
       } catch (err: any) {
-          if (err.message === "API_UNAVAILABLE" || err.message === "Failed to fetch") {
-              console.warn("Backend unavailable, checking local storage.");
+          if (err.message === "API_UNAVAILABLE" || err.message === "Failed to fetch" || err.name === 'TypeError') {
+              console.warn("Backend unavailable or timeout, checking local storage.");
               setIsOfflineMode(true); 
               setOfflineReason("عدم دسترسی به سرور");
               
@@ -252,7 +256,7 @@ const App: React.FC = () => {
                   // Alert removed to fix flashing issue
                   return;
               }
-              throw new Error("ارتباط با سرور برقرار نشد و کاربر آفلاین یافت نشد.");
+              throw new Error("ارتباط با سرور برقرار نشد و کاربر آفلاین یافت نشد. (لطفا اتصال اینترنت یا تنظیمات سرور را بررسی کنید)");
           } else {
               throw err;
           }
