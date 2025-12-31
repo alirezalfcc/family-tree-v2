@@ -23,7 +23,7 @@ import {
 } from './utils/genealogy';
 import { exportToSVG } from './utils/svgExporter';
 
-const APP_VERSION = "v4.2 Mobile Fix";
+const APP_VERSION = "v4.3 Login Fix";
 
 // Local Storage Keys
 const LS_KEYS = {
@@ -165,15 +165,17 @@ const App: React.FC = () => {
   }, []);
 
   // --- API Functions (Optimized for Mobile/Preview) ---
-  const apiCall = async (path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', body?: any, retryCount = 0): Promise<any> => {
-      // 1. FAST EXIT: If we already detected offline mode, don't even try fetch.
-      if (isOfflineMode) {
+  // Added skipOfflineCheck to force try server even if app thinks it's offline (e.g. for Login)
+  const apiCall = async (path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', body?: any, retryCount = 0, skipOfflineCheck = false): Promise<any> => {
+      
+      // 1. FAST EXIT: If we already detected offline mode AND we are not forcing a check
+      if (isOfflineMode && !skipOfflineCheck) {
           throw new Error("API_UNAVAILABLE");
       }
 
       const controller = new AbortController();
-      // Increased timeout to 20s to allow for serverless cold starts & slow mobile networks
-      const timeoutId = setTimeout(() => controller.abort(), 20000); 
+      // Increased timeout to 25s for mobile stability
+      const timeoutId = setTimeout(() => controller.abort(), 25000); 
 
       try {
           const options: RequestInit = {
@@ -221,7 +223,7 @@ const App: React.FC = () => {
           // Retry Logic for Network Errors (Once)
           if (retryCount < 1 && (error.name === 'AbortError' || error.message === "Failed to fetch" || error.message === "API_UNAVAILABLE")) {
               console.log(`Retrying API call (${retryCount + 1})...`);
-              return apiCall(path, method, body, retryCount + 1);
+              return apiCall(path, method, body, retryCount + 1, skipOfflineCheck);
           }
 
           if (error.name === 'AbortError') {
@@ -236,7 +238,7 @@ const App: React.FC = () => {
 
   // --- Auth Handlers (Hybrid: Server -> Local Fallback) ---
   const handleLogin = async (username: string, pass: string) => {
-      // Offline / Local Login Logic
+      
       const performLocalLogin = () => {
           const foundUser = localUsers.find(u => u.username === username && u.password === pass);
           if (foundUser) {
@@ -246,29 +248,37 @@ const App: React.FC = () => {
           return false;
       };
 
-      if (isOfflineMode) {
-          if (performLocalLogin()) return;
-          throw new Error("نام کاربری یا رمز عبور اشتباه است (آفلاین)");
-      }
-
+      // CHANGED: Always try server first using skipOfflineCheck=true
       try {
-          const res = await apiCall('_system/login', 'POST', { username, password: pass });
+          // Pass 'true' as the last argument to force online check even if isOfflineMode is true
+          const res = await apiCall('_system/login', 'POST', { username, password: pass }, 0, true);
+          
           if (res.success) {
+              // Server login success -> We are back online!
+              setIsOfflineMode(false);
+              setOfflineReason('');
               completeLogin(res.username, res.role);
+              return;
           } else {
               throw new Error(res.message);
           }
       } catch (err: any) {
+          // If server error is strictly network related, fallback to local
           if (err.message === "API_UNAVAILABLE" || err.message === "Failed to fetch" || err.name === 'TypeError') {
-              console.warn("Backend unavailable or timeout, checking local storage.");
-              setIsOfflineMode(true); 
-              setOfflineReason("عدم دسترسی به سرور");
+              console.warn("Backend unavailable for login, checking local storage.");
+              
+              // Only set offline mode if we weren't already
+              if (!isOfflineMode) {
+                  setIsOfflineMode(true); 
+                  setOfflineReason("عدم دسترسی به سرور");
+              }
               
               if (performLocalLogin()) {
                   return;
               }
               throw new Error("ارتباط با سرور برقرار نشد و کاربر آفلاین یافت نشد. (لطفا اتصال اینترنت را بررسی کنید)");
           } else {
+              // Valid response from server but error (e.g. Wrong Password)
               throw err;
           }
       }
@@ -440,12 +450,19 @@ const App: React.FC = () => {
   const fetchData = async (userOverride?: { username: string; role: 'admin' | 'user' } | null) => {
       try {
           let data;
-          if (!isOfflineMode) {
-            try {
-               data = await apiCall(''); 
+          // Try to fetch from server first (skipOfflineCheck not needed here as logic handles error catch)
+          // But to allow "healing" from offline state if called manually:
+          try {
+               // Use skipOfflineCheck = true only if user manually retries, but standard load respects offline mode.
+               // However, to fix "stuck offline", let's attempt it if isOfflineMode is true but this is a reload.
+               const shouldForce = isOfflineMode; 
+               data = await apiCall('', 'GET', undefined, 0, shouldForce); 
+               
+               // If successful, we are online
                setIsOfflineMode(false);
-            } catch (e) { throw e; }
-          }
+               setOfflineReason('');
+          } catch (e) { throw e; }
+
           if (!data) throw new Error("Fetching local");
           processFetchedData(data, userOverride);
       } catch (error: any) {
