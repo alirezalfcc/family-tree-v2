@@ -23,7 +23,7 @@ import {
 } from './utils/genealogy';
 import { exportToSVG } from './utils/svgExporter';
 
-const APP_VERSION = "v4.1 Final";
+const APP_VERSION = "v4.2 Mobile Fix";
 
 // Local Storage Keys
 const LS_KEYS = {
@@ -164,21 +164,26 @@ const App: React.FC = () => {
       }
   }, []);
 
-  // --- API Functions (Optimized for Preview) ---
-  const apiCall = async (path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', body?: any) => {
+  // --- API Functions (Optimized for Mobile/Preview) ---
+  const apiCall = async (path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', body?: any, retryCount = 0): Promise<any> => {
       // 1. FAST EXIT: If we already detected offline mode, don't even try fetch.
       if (isOfflineMode) {
           throw new Error("API_UNAVAILABLE");
       }
 
       const controller = new AbortController();
-      // Increased timeout to 15s to allow for serverless cold starts
-      const timeoutId = setTimeout(() => controller.abort(), 15000); 
+      // Increased timeout to 20s to allow for serverless cold starts & slow mobile networks
+      const timeoutId = setTimeout(() => controller.abort(), 20000); 
 
       try {
           const options: RequestInit = {
               method,
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 
+                  'Content-Type': 'application/json',
+                  'Cache-Control': 'no-cache', // Mobile browser force fresh
+                  'Pragma': 'no-cache'
+              },
+              cache: 'no-store', // Prevent mobile caching of API responses
               signal: controller.signal
           };
           if (body) options.body = JSON.stringify(body);
@@ -212,6 +217,13 @@ const App: React.FC = () => {
           return json;
       } catch (error: any) {
           clearTimeout(timeoutId);
+          
+          // Retry Logic for Network Errors (Once)
+          if (retryCount < 1 && (error.name === 'AbortError' || error.message === "Failed to fetch" || error.message === "API_UNAVAILABLE")) {
+              console.log(`Retrying API call (${retryCount + 1})...`);
+              return apiCall(path, method, body, retryCount + 1);
+          }
+
           if (error.name === 'AbortError') {
               throw new Error("API_UNAVAILABLE"); // Timeout treated as offline/unavailable
           }
@@ -253,10 +265,9 @@ const App: React.FC = () => {
               setOfflineReason("عدم دسترسی به سرور");
               
               if (performLocalLogin()) {
-                  // Alert removed to fix flashing issue
                   return;
               }
-              throw new Error("ارتباط با سرور برقرار نشد و کاربر آفلاین یافت نشد. (لطفا اتصال اینترنت یا تنظیمات سرور را بررسی کنید)");
+              throw new Error("ارتباط با سرور برقرار نشد و کاربر آفلاین یافت نشد. (لطفا اتصال اینترنت را بررسی کنید)");
           } else {
               throw err;
           }
