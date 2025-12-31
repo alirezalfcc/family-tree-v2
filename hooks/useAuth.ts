@@ -24,15 +24,6 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
       if (session) {
           try {
               const userObj = JSON.parse(session);
-              
-              // SECURITY: Prevent mock session '1' persistence in Production
-              if (userObj.username === '1' && !import.meta.env.DEV) {
-                  localStorage.removeItem(LS_KEYS.SESSION);
-                  setIsAuthenticated(false);
-                  setCurrentUser(null);
-                  return;
-              }
-
               setCurrentUser(userObj);
               setIsAuthenticated(true);
           } catch (e) {
@@ -54,24 +45,21 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
       const safePass = pass.trim();
 
       try {
-          await Promise.race([
-                 api.apiCall('_system/login', 'POST', { username: safeUser, password: safePass }, 0, false)
-                    .then((res: any) => {
-                         if (res.success) {
-                            completeLogin(res.username, res.role);
-                         } else {
-                            throw new Error(res.message || "اطلاعات ورود نادرست است");
-                         }
-                    }),
-                 // Timeout increased to 15s to allow for slower server responses in production
-                 new Promise((_, reject) => setTimeout(() => reject(new Error("API_TIMEOUT")), 15000))
-          ]);
+          // Use simple 'login' path instead of '_system/login'
+          const res = await api.apiCall('login', 'POST', { username: safeUser, password: safePass }, 0, false);
+          
+          if (res.success) {
+              completeLogin(res.username, res.role);
+          } else {
+              throw new Error(res.message || "اطلاعات ورود نادرست است");
+          }
       } catch (err: any) {
           console.error("Login failed:", err);
-          
           let msg = err.message;
-          if (msg === "API_TIMEOUT") msg = "پاسخی از سرور دریافت نشد (تایم‌اوت). لطفا اتصال اینترنت را بررسی کنید.";
-          else if (msg === "API_UNAVAILABLE" || msg === "Failed to fetch") msg = "ارتباط با سرور برقرار نشد.";
+          if (msg === "API_TIMEOUT") msg = "پاسخی از سرور دریافت نشد (تایم‌اوت).";
+          else if (msg === "API_UNAVAILABLE" || msg === "Failed to fetch") msg = "ارتباط با سرور برقرار نشد (Network Error).";
+          else if (msg === "API_ROUTE_NOT_FOUND" || msg.includes("404")) msg = "خطای سرور: سرویس احراز هویت یافت نشد (404).";
+          else if (msg === "API_SERVER_ERROR") msg = "خطای داخلی سرور (500).";
           
           throw new Error(msg);
       }

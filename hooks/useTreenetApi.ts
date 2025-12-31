@@ -19,7 +19,6 @@ export const useTreenetApi = () => {
   ): Promise<any> => {
       
       // Select Strategy
-      // Use chatApi if offline mode is explicitly on
       const strategy = (isOfflineMode && !skipOfflineCheck) ? chatApi : productApi;
 
       try {
@@ -36,24 +35,22 @@ export const useTreenetApi = () => {
           const isLogin = path.includes('login');
           const isSystem = path.startsWith('_system/');
           
+          // Retry once for network glitches (GET only or specific cases)
           if (strategy === productApi && !isOfflineMode && !isLogin && !isSystem && retryCount < 1 && (error.name === 'AbortError' || error.message === "Failed to fetch")) {
               console.log(`Retrying API call (${retryCount + 1})...`);
               return apiCall(path, method, body, retryCount + 1, skipOfflineCheck, extraHeaders);
           }
 
           // DEVELOPMENT ONLY FALLBACK
-          // If we are in local development (npm run dev) and the real API fails (because no backend proxy),
-          // switch to Chat/Mock mode automatically so the developer can work.
-          // import.meta.env.DEV is provided by Vite.
+          // In production, we MUST fail if the server is down to prevent security bypass or confusion.
           if (import.meta.env.DEV && strategy === productApi && !isOfflineMode) {
                console.warn("Development Mode: API unavailable, switching to Mock/Chat mode.");
                setIsOfflineMode(true);
                setOfflineReason("حالت توسعه (آفلاین/ماک)");
-               // Retry the call immediately with the new mode
-               return apiCall(path, method, body, 0, false, extraHeaders);
+               return chatApi.execute(path, method, body, extraHeaders);
           }
 
-          // In PRODUCTION, we do NOT fallback. We propagate the error.
+          // In PRODUCTION, propagate error directly so the UI knows the server failed
           throw error;
       }
   }, [isOfflineMode]);

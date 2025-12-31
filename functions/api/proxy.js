@@ -4,6 +4,18 @@ export async function onRequest(context) {
   const SECRET = context.env.FIREBASE_DB_SECRET; 
   let dbUrl = context.env.FIREBASE_DB_URL;
 
+  // Handle CORS Preflight requests
+  if (context.request.method === "OPTIONS") {
+    return new Response(null, {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, If-Match",
+        "Access-Control-Max-Age": "86400",
+      },
+    });
+  }
+
   // Fallback DB URL Logic
   if (!dbUrl) {
       if (PROJECT_ID) {
@@ -33,8 +45,8 @@ export async function onRequest(context) {
 
   // --- INTERNAL AUTH & SYSTEM HANDLERS ---
   
-  // 1. LOGIN Handler (Server-Side Check)
-  if (path === "_system/login" && method === "POST") {
+  // 1. LOGIN Handler (Check both 'login' and '_system/login')
+  if ((path === "login" || path === "_system/login") && method === "POST") {
       try {
           let body;
           try {
@@ -47,8 +59,7 @@ export async function onRequest(context) {
           
           if (!username) return new Response(JSON.stringify({ success: false, message: "Username required" }), { status: 400 });
 
-          // 1. Check Cloudflare Env Variables (System Admin) - PRIORITY
-          // This ensures '1'/'1' or any other hardcoded value NEVER works unless explicitly set in Env.
+          // 1. Check Cloudflare Env Variables (System Admin)
           if (context.env.SYS_ADMIN_USER && context.env.SYS_ADMIN_PASS) {
               if (username === context.env.SYS_ADMIN_USER && password === context.env.SYS_ADMIN_PASS) {
                   return new Response(JSON.stringify({ 
@@ -94,7 +105,6 @@ export async function onRequest(context) {
           const body = await context.request.json();
           const { targetUser, password, role } = body;
           
-          // SECURITY: Sanitize Username
           const safeUser = targetUser.replace(/[^a-zA-Z0-9_-]/g, '');
           if (!safeUser) return new Response("Invalid Username", { status: 400 });
 
@@ -109,14 +119,12 @@ export async function onRequest(context) {
       }
   }
 
-  // 3. BACKUP (Dump entire DB)
+  // 3. BACKUP & RESTORE
   if (path === "_system/backup" && method === "GET") {
       const res = await fetch(`${dbUrl}/.json?auth=${SECRET}`);
       const data = await res.json();
       return new Response(JSON.stringify(data), { status: 200 });
   }
-
-  // 4. RESTORE (Overwrite entire DB)
   if (path === "_system/restore" && method === "POST") {
       const body = await context.request.json();
       const res = await fetch(`${dbUrl}/.json?auth=${SECRET}`, {
@@ -127,7 +135,6 @@ export async function onRequest(context) {
   }
 
   // --- STANDARD PROXY ---
-  // SECURITY: Prevent direct access to users table via generic proxy
   if (path.startsWith("users") || path.startsWith("_system")) {
       return new Response("Access Denied", { status: 403 });
   }
@@ -138,10 +145,9 @@ export async function onRequest(context) {
        return new Response(JSON.stringify(data || {}), { status: 200 });
   }
 
-  // Standard Logic
+  // Firebase Proxy Logic
   const firebaseUrl = `${dbUrl}/${path}.json?auth=${SECRET}`;
   
-  // Forward 'If-Match' header for concurrency control
   const clientIfMatch = context.request.headers.get("If-Match");
   const headers = { "Content-Type": "application/json" };
   if (clientIfMatch) {
@@ -163,11 +169,11 @@ export async function onRequest(context) {
       return new Response("Method not allowed", { status: 405 });
     }
 
-    // Forward ETag from Firebase to Client
     const responseHeaders = { 
         "Content-Type": "application/json",
-        "X-Content-Type-Options": "nosniff", // Security Header
-        "X-Frame-Options": "DENY" // Security Header
+        "X-Content-Type-Options": "nosniff", 
+        "X-Frame-Options": "DENY",
+        "Access-Control-Allow-Origin": "*",
     };
     const backendETag = firebaseResponse.headers.get("ETag");
     if (backendETag) {
@@ -176,7 +182,6 @@ export async function onRequest(context) {
     }
 
     if (!firebaseResponse.ok) {
-         // Forward specific error status (like 412 Precondition Failed)
          const status = firebaseResponse.status;
          return new Response(JSON.stringify({ error: `Firebase Error ${status}`, status }), { status: status, headers: responseHeaders });
     }

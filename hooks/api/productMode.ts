@@ -2,17 +2,14 @@
 import { ApiStrategy } from './types';
 
 // استراتژی محیط واقعی (Product Mode)
-// این فایل مسئول ارتباط با سرور واقعی و پروکسی است.
 export const productApi: ApiStrategy = {
     execute: async (path, method, body, extraHeaders = {}) => {
         const controller = new AbortController();
         
-        // زمان انتظار برای سرور (Timeout)
-        // لاگین و سیستم: 10 ثانیه (افزایش یافته از 2 ثانیه برای جلوگیری از خطای زودهنگام)
-        // سایر عملیات: 20 ثانیه
-        const isLogin = path.includes('login');
+        // Timeout configuration
+        const isLogin = path === 'login' || path.includes('login');
         const isSystem = path.startsWith('_system/');
-        const timeoutDuration = (isLogin || isSystem) ? 10000 : 20000;
+        const timeoutDuration = (isLogin || isSystem) ? 15000 : 20000;
         
         const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
 
@@ -29,50 +26,81 @@ export const productApi: ApiStrategy = {
             
             if (body) options.body = JSON.stringify(body);
             
-            // استفاده از تایم‌استمپ برای جلوگیری از کش شدن
             const proxyUrl = `/api/proxy?path=${encodeURIComponent(path)}&_t=${Date.now()}`;
             
             const response = await fetch(proxyUrl, options);
             clearTimeout(timeoutId);
 
-            // بررسی نوع محتوا برای تشخیص خطاهای HTML (مثل صفحه 404 سرورهای SPA)
-            const contentType = response.headers.get("content-type");
-            if (contentType && (contentType.includes("text/html") || contentType.includes("text/plain"))) {
-                throw new Error("API_UNAVAILABLE");
+            // 1. Check HTTP Status FIRST
+            if (response.status === 404) {
+                // Return a specific error code that useTreenetApi or useAuth can recognize
+                throw new Error("API_ROUTE_NOT_FOUND"); 
             }
+            if (response.status === 500) {
+                throw new Error("API_SERVER_ERROR");
+            }
+
+            // 2. Check Content Type
+            const contentType = response.headers.get("content-type");
+            const isJson = contentType && contentType.includes("application/json");
 
             const text = await response.text();
+            
             if (!text) {
                 if (response.ok) return {}; 
-                throw new Error("API_UNAVAILABLE");
+                throw new Error("API_EMPTY_RESPONSE");
             }
 
+            // 3. Parse JSON safely
             let json;
-            try {
-                json = JSON.parse(text);
-            } catch (e) {
-                throw new Error("API_UNAVAILABLE");
+            if (isJson || (text.startsWith('{') || text.startsWith('['))) {
+                try {
+                    json = JSON.parse(text);
+                } catch (e) {
+                    console.error("JSON Parse Error. Body:", text.substring(0, 100));
+                    throw new Error("API_INVALID_JSON");
+                }
+            } else {
+                // If not JSON and error status, throw text
+                if (!response.ok) throw new Error(text || `Error ${response.status}`);
+                // If OK but not JSON (unexpected)
+                console.warn("API returned non-JSON:", text.substring(0, 50));
+                return { data: text }; 
             }
 
-            if (response.status === 404) throw new Error("API Route Not Found");
-            
+            // 4. Handle Logic Errors
             if (!response.ok) {
-                // مدیریت خطای تداخل داده (Optimistic Locking)
                 if (response.status === 412 || json.status === 412) {
                     throw new Error("DATA_CONFLICT");
                 }
-                throw new Error(json.detail || json.error || `Error ${response.status}`);
+                if (response.status === 401) {
+                    const authError = new Error(json.message || "Unauthorized");
+                    (authError as any).status = 401;
+                    throw authError;
+                }
+                throw new Error(json.detail || json.error || json.message || `Error ${response.status}`);
             }
 
-            // بازگرداندن پاسخ به همراه هدرها (برای ETag)
             return { ...json, _headers: response.headers };
 
         } catch (error: any) {
             clearTimeout(timeoutId);
-            // هرگونه خطای شبکه یا تایم اوت را به عنوان عدم دسترسی تلقی کن
-            if (error.name === 'AbortError' || error.message === 'Failed to fetch' || error.name === 'TypeError') {
+            
+            // Pass through specific auth errors
+            if (error.status === 401) throw error;
+
+            // Treat network errors, timeouts, and 500s as UNAVAILABLE
+            if (
+                error.name === 'AbortError' || 
+                error.message === 'Failed to fetch' || 
+                error.name === 'TypeError'
+            ) {
                 throw new Error("API_UNAVAILABLE");
             }
+            
+            // Allow API_ROUTE_NOT_FOUND to bubble up without modification
+            // so useAuth can display a friendly message instead of "Critical..."
+            
             throw error;
         }
     }
