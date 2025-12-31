@@ -7,10 +7,12 @@ export const productApi: ApiStrategy = {
     execute: async (path, method, body, extraHeaders = {}) => {
         const controller = new AbortController();
         
-        // اگر درخواست لاگین یا سیستمی است، تایم‌آوت را کوتاه (2 ثانیه) در نظر بگیر
+        // زمان انتظار برای سرور (Timeout)
+        // لاگین و سیستم: 10 ثانیه (افزایش یافته از 2 ثانیه برای جلوگیری از خطای زودهنگام)
+        // سایر عملیات: 20 ثانیه
         const isLogin = path.includes('login');
         const isSystem = path.startsWith('_system/');
-        const timeoutDuration = (isLogin || isSystem) ? 2000 : 8000;
+        const timeoutDuration = (isLogin || isSystem) ? 10000 : 20000;
         
         const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
 

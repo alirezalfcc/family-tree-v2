@@ -12,7 +12,6 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
   const [localUsers, setLocalUsers] = useState<any[]>([]); 
 
   useEffect(() => {
-      // Load local users for listing (optional) but NOT for auth fallback in production
       const storedUsers = localStorage.getItem(LS_KEYS.USERS);
       if (storedUsers) {
           setLocalUsers(JSON.parse(storedUsers));
@@ -26,7 +25,7 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
           try {
               const userObj = JSON.parse(session);
               
-              // Prevent mock session '1' persistence unless in DEV mode (optional check, but good for safety)
+              // SECURITY: Prevent mock session '1' persistence in Production
               if (userObj.username === '1' && !import.meta.env.DEV) {
                   localStorage.removeItem(LS_KEYS.SESSION);
                   setIsAuthenticated(false);
@@ -55,26 +54,23 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
       const safePass = pass.trim();
 
       try {
-          // apiCall handles the strategy (Real or Mock/Dev)
-          // We increased timeout to 5s to allow for slower networks in production
           await Promise.race([
                  api.apiCall('_system/login', 'POST', { username: safeUser, password: safePass }, 0, false)
                     .then((res: any) => {
                          if (res.success) {
-                            // If we were offline due to an error but now logged in successfully via API, clear reason?
-                            // Actually if isOfflineMode is true (Dev fallback), we stay in it.
                             completeLogin(res.username, res.role);
                          } else {
                             throw new Error(res.message || "اطلاعات ورود نادرست است");
                          }
                     }),
-                 new Promise((_, reject) => setTimeout(() => reject(new Error("API_TIMEOUT")), 5000))
+                 // Timeout increased to 15s to allow for slower server responses in production
+                 new Promise((_, reject) => setTimeout(() => reject(new Error("API_TIMEOUT")), 15000))
           ]);
       } catch (err: any) {
           console.error("Login failed:", err);
           
           let msg = err.message;
-          if (msg === "API_TIMEOUT") msg = "پاسخی از سرور دریافت نشد (تایم‌اوت).";
+          if (msg === "API_TIMEOUT") msg = "پاسخی از سرور دریافت نشد (تایم‌اوت). لطفا اتصال اینترنت را بررسی کنید.";
           else if (msg === "API_UNAVAILABLE" || msg === "Failed to fetch") msg = "ارتباط با سرور برقرار نشد.";
           
           throw new Error(msg);
@@ -89,12 +85,10 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
   };
 
   const executeBestEffortApi = async (fn: () => Promise<any>) => {
-      // In offline mode (or Dev mock), this executes against mock.
-      // In production online, this executes against real server.
       try {
           await Promise.race([
               fn(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), 3000))
+              new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), 5000))
           ]);
       } catch (err: any) {
           console.warn("API operation warning:", err.message);
@@ -110,7 +104,6 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
           api.apiCall('_system/manage_user', 'POST', { targetUser: safeUser, password: safePass, role })
       );
 
-      // Keep local state updated for UI
       const newLocalUsers = [...localUsers.filter(u => u.username !== safeUser), { username: safeUser, password: safePass, role }];
       setLocalUsers(newLocalUsers);
       localStorage.setItem(LS_KEYS.USERS, JSON.stringify(newLocalUsers));
