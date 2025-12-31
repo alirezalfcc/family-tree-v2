@@ -1,6 +1,7 @@
 
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { ExtendedPerson, getFullIdentityLabel } from '../utils/genealogy';
+import { useAuthContext } from '../context/AuthContext';
 
 interface HeaderProps {
   searchTerm: string;
@@ -9,14 +10,13 @@ interface HeaderProps {
   onSelectPerson: (person: ExtendedPerson) => void;
   onExport: () => void;
   onImport: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  isAuthenticated: boolean;
   onExportImage: () => void;
   onExportPDF?: () => void;
   onExportSVG?: () => void; 
   onOpenSettings?: () => void;
   onOpenStats?: () => void; 
   onOpenCalculator?: () => void; 
-  onOpenMap?: () => void; // New prop
+  onOpenMap?: () => void;
   searchGlobal: boolean;
   setSearchGlobal: (val: boolean) => void;
   title?: string;
@@ -29,7 +29,6 @@ const Header: React.FC<HeaderProps> = ({
   onSelectPerson, 
   onExport, 
   onImport,
-  isAuthenticated,
   onExportImage,
   onExportPDF,
   onExportSVG,
@@ -41,6 +40,7 @@ const Header: React.FC<HeaderProps> = ({
   setSearchGlobal,
   title = "شجره نامه خاندان امین عرب"
 }) => {
+  const { isAuthenticated } = useAuthContext();
   const [showAbout, setShowAbout] = useState(false);
 
   return (
@@ -131,7 +131,8 @@ const Header: React.FC<HeaderProps> = ({
 
              {onOpenSettings && (
                 <button onClick={onOpenSettings} className="p-2 md:p-3 bg-slate-100 border-2 border-slate-200 rounded-xl md:rounded-2xl text-slate-600 hover:border-slate-400 hover:text-slate-800 transition-all shadow-sm" title="تنظیمات امنیتی و اخبار">
-                    <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    {/* Fixed Gear Icon */}
+                    <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15a3 3 0 100-6 3 3 0 000 6z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" /></svg>
                 </button>
              )}
 

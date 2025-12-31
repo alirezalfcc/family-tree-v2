@@ -1,6 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
-import { ExtendedPerson, getFullIdentityLabel, findRelationship } from '../utils/genealogy';
+import { ExtendedPerson, getFullIdentityLabel } from '../utils/genealogy';
+import { findRelationship } from '../utils/relationshipLogic';
 
 interface RelationshipCalculatorProps {
   allMembers: ExtendedPerson[];

@@ -1,6 +1,7 @@
 
 import React, { useMemo } from 'react';
-import { ExtendedPerson, getDerivedGender, calculatePersianAge } from '../utils/genealogy';
+import { ExtendedPerson, getDerivedGender } from '../utils/genealogy';
+import { calculatePersianAge } from '../utils/relationshipLogic';
 
 interface StatisticsDashboardProps {
   members: ExtendedPerson[];
