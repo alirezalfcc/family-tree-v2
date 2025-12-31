@@ -4,6 +4,7 @@ import { productApi } from './api/productMode';
 import { chatApi } from './api/chatMode';
 
 export const useTreenetApi = () => {
+  // In production/secured version, default is ALWAYS false and cannot be auto-switched by errors.
   const [isOfflineMode, setIsOfflineMode] = useState(false);
   const [offlineReason, setOfflineReason] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
@@ -18,7 +19,8 @@ export const useTreenetApi = () => {
       extraHeaders: Record<string, string> = {}
   ): Promise<any> => {
       
-      // انتخاب استراتژی
+      // Select Strategy
+      // SECURITY FIX: Only use chatApi if isOfflineMode is explicitly true (e.g. set by developer tool, not by error fallback)
       const strategy = (isOfflineMode && !skipOfflineCheck) ? chatApi : productApi;
 
       try {
@@ -31,24 +33,10 @@ export const useTreenetApi = () => {
           return response;
 
       } catch (error: any) {
-          // شناسایی خطاهای شبکه برای سوئیچ به حالت چت/آفلاین
-          const isNetworkError = error.message === "API_UNAVAILABLE" || error.message === "Failed to fetch" || error.message === "API Route Not Found";
+          // SECURITY FIX: Removed the "Switch to Chat/Offline Mode" block.
+          // If the network fails, we must FAIL securely, not fallback to an insecure mock mode.
           
-          // اگر استراتژی فعلی Product بود و خطا داد:
-          if (strategy === productApi && isNetworkError) {
-              console.warn("Switching to Chat/Offline Mode due to error:", error.message);
-              
-              // 1. سوئیچ وضعیت به آفلاین
-              setIsOfflineMode(true);
-              setOfflineReason("عدم دسترسی به سرور (حالت چت/آفلاین)");
-
-              // 2. بلافاصله درخواست را با Chat API اجرا کن (Failover)
-              // این باعث می‌شود کاربر اصلا متوجه خطا نشود و مستقیما لاگین لوکال انجام شود
-              return chatApi.execute(path, method, body, extraHeaders);
-          }
-
-          // مدیریت تلاش مجدد (Retry) فقط برای Product Mode
-          // نکته مهم: برای لاگین (login) و درخواست‌های سیستمی (_system) تلاش مجدد نمی‌کنیم تا سریع فیل شود
+          // Retry logic for Product Mode (unchanged)
           const isLogin = path.includes('login');
           const isSystem = path.startsWith('_system/');
           
@@ -57,6 +45,7 @@ export const useTreenetApi = () => {
               return apiCall(path, method, body, retryCount + 1, skipOfflineCheck, extraHeaders);
           }
 
+          // Propagate the error to the UI
           throw error;
       }
   }, [isOfflineMode]);

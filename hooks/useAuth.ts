@@ -12,13 +12,11 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
   const [localUsers, setLocalUsers] = useState<any[]>([]); 
 
   useEffect(() => {
-      // SECURITY FIX: Only load existing users. Do NOT create default "1"/"1" user.
+      // Load local users just for listing in admin panel (if needed), but NOT for login validation fallback.
       const storedUsers = localStorage.getItem(LS_KEYS.USERS);
       if (storedUsers) {
           setLocalUsers(JSON.parse(storedUsers));
       } else {
-          // Initialize empty array if no users exist. 
-          // "1"/"1" login is now strictly handled by ChatApi (Offline) or Env Vars (Online).
           setLocalUsers([]); 
       }
 
@@ -28,11 +26,9 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
           try {
               const userObj = JSON.parse(session);
               
-              // SECURITY FIX: Prevent "Offline Mock Login" from persisting to "Online Live Session".
-              // If the stored session user is '1', we invalidate it immediately upon reload.
-              // This forces the attacker to re-authenticate properly against the server.
+              // SECURITY FIX: Invalidating mock session '1' if it exists in storage.
               if (userObj.username === '1') {
-                  console.warn("Security: Invalidating mock session '1' to prevent persistent access.");
+                  console.warn("Security: Invalidating mock session '1'.");
                   localStorage.removeItem(LS_KEYS.SESSION);
                   setIsAuthenticated(false);
                   setCurrentUser(null);
@@ -53,7 +49,6 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
       setIsAuthenticated(true);
       setCurrentUser(userObj);
       localStorage.setItem(LS_KEYS.SESSION, JSON.stringify(userObj));
-      // Trigger data fetch or layout update after login
       setTimeout(() => onDataRefresh(), 0);
   };
 
@@ -61,20 +56,14 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
       const safeUser = username.trim();
       const safePass = pass.trim();
 
-      const performLocalLogin = () => {
-          const foundUser = localUsers.find(u => u.username === safeUser && u.password === safePass);
-          if (foundUser) {
-              completeLogin(foundUser.username, foundUser.role);
-              return true;
-          }
-          return false;
-      };
+      // SECURITY FIX: 'performLocalLogin' removed from execution flow when Online.
+      // We only strictly rely on the API response.
 
       try {
-          // برای لاگین هم تایم‌اوت سخت‌گیرانه می‌گذاریم (2.5 ثانیه)
-          // تا اگر شبکه هنگ کرد، سریع سراغ لوکال برود
-          if (!api.isOfflineMode) {
-             await Promise.race([
+          // Attempt Login via API
+          // Even if api.isOfflineMode is false, we force it to try the network.
+          // Since we removed the auto-offline switch in useTreenetApi, this will either succeed or fail with an error.
+          await Promise.race([
                  api.apiCall('_system/login', 'POST', { username: safeUser, password: safePass }, 0, false)
                     .then((res: any) => {
                          if (res.success) {
@@ -84,35 +73,13 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
                             throw new Error(res.message);
                          }
                     }),
-                 new Promise((_, reject) => setTimeout(() => reject(new Error("API_TIMEOUT")), 2500))
-             ]);
-             return;
-          } else {
-             // Already offline, call directly (it will use chatApi)
-             const res = await api.apiCall('_system/login', 'POST', { username: safeUser, password: safePass }, 0, false);
-             if (res.success) {
-                 completeLogin(res.username, res.role);
-                 return;
-             }
-             throw new Error(res.message);
-          }
+                 new Promise((_, reject) => setTimeout(() => reject(new Error("API_TIMEOUT")), 3000))
+          ]);
       } catch (err: any) {
-          // اگر API در دسترس نبود یا تایم‌اوت شد
-          const isNetworkIssue = err.message === "API_UNAVAILABLE" || err.message === "Failed to fetch" || 
-                                 err.message === "API Route Not Found" || err.name === 'TypeError' || 
-                                 err.message === "API_TIMEOUT";
-
-          if (isNetworkIssue) {
-              console.warn("Backend unavailable/timeout for login, checking local storage.");
-              if (!api.isOfflineMode) {
-                  api.setIsOfflineMode(true); 
-                  api.setOfflineReason("عدم دسترسی به سرور");
-              }
-              if (performLocalLogin()) return;
-              throw new Error("ارتباط با سرور برقرار نشد و کاربر آفلاین یافت نشد.");
-          } else {
-              throw err;
-          }
+          // SECURITY FIX: Do NOT fallback to local storage if API fails.
+          // Just throw the error to the UI.
+          console.error("Login failed:", err.message);
+          throw new Error("خطا در ورود: ارتباط با سرور برقرار نشد یا مشخصات اشتباه است.");
       }
   };
 
@@ -123,17 +90,16 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
       setTimeout(() => onDataRefresh(), 0); 
   };
 
-  // Helper to execute API with timeout but ignore failure (Best Effort)
+  // Helper to execute API with timeout (Best Effort for CRUD operations)
   const executeBestEffortApi = async (fn: () => Promise<any>) => {
-      if (api.isOfflineMode) return; // Don't bother if known offline
+      if (api.isOfflineMode) return; 
       try {
-          // Race against 2s timeout
           await Promise.race([
               fn(),
               new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), 2000))
           ]);
       } catch (err: any) {
-          console.warn("API operation failed or timed out, proceeding locally:", err.message);
+          console.warn("API operation warning:", err.message);
       }
   };
 
@@ -143,10 +109,12 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
       const safeUser = user.trim();
       const safePass = pass.trim();
 
+      // Call API first
       await executeBestEffortApi(() => 
           api.apiCall('_system/manage_user', 'POST', { targetUser: safeUser, password: safePass, role })
       );
 
+      // Update local state for UI consistency
       const newLocalUsers = [...localUsers.filter(u => u.username !== safeUser), { username: safeUser, password: safePass, role }];
       setLocalUsers(newLocalUsers);
       localStorage.setItem(LS_KEYS.USERS, JSON.stringify(newLocalUsers));
@@ -159,6 +127,7 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
       const safeNew = newUsername.trim();
       const safePass = newPass.trim();
 
+      // Check duplicates locally first
       let newLocalUsers = [...localUsers];
       if (safeOld !== safeNew) {
           if (newLocalUsers.some(u => u.username === safeNew)) {
@@ -185,7 +154,6 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
       if (!currentUser || currentUser.role !== 'admin') throw new Error("Access Denied");
       if (targetUser === currentUser.username) throw new Error("نمیتوانید حساب خودتان را حذف کنید.");
       
-      // Protection for "1" also locally, just in case
       if (targetUser === '1') throw new Error("حساب مدیر پیش‌فرض قابل حذف نیست.");
 
       const newLocalUsers = localUsers.filter(u => u.username !== targetUser);
@@ -194,9 +162,7 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
 
       deleteCallback(targetUser);
 
-      // Best effort API call (no await needed for UI, but await ensures logic order)
       executeBestEffortApi(() => 
-           // Assuming delete logic might be same endpoint or different, using manage_user for simplicity if supported or skip
            Promise.resolve() 
       );
       
