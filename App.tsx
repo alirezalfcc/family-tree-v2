@@ -23,7 +23,7 @@ import {
 } from './utils/genealogy';
 import { exportToSVG } from './utils/svgExporter';
 
-const APP_VERSION = "v4.3 Login Fix";
+const APP_VERSION = "v4.4 Mobile Login Fix";
 
 // Local Storage Keys
 const LS_KEYS = {
@@ -165,7 +165,6 @@ const App: React.FC = () => {
   }, []);
 
   // --- API Functions (Optimized for Mobile/Preview) ---
-  // Added skipOfflineCheck to force try server even if app thinks it's offline (e.g. for Login)
   const apiCall = async (path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', body?: any, retryCount = 0, skipOfflineCheck = false): Promise<any> => {
       
       // 1. FAST EXIT: If we already detected offline mode AND we are not forcing a check
@@ -174,30 +173,36 @@ const App: React.FC = () => {
       }
 
       const controller = new AbortController();
-      // Increased timeout to 25s for mobile stability
-      const timeoutId = setTimeout(() => controller.abort(), 25000); 
+      // Increased timeout to 30s for mobile stability
+      const timeoutId = setTimeout(() => controller.abort(), 30000); 
 
       try {
+          // Add timestamp to prevent caching aggression
+          const separator = path.includes('?') ? '&' : '?';
+          const pathWithTs = `${path}${separator}_t=${Date.now()}`;
+
           const options: RequestInit = {
               method,
               headers: { 
                   'Content-Type': 'application/json',
-                  'Cache-Control': 'no-cache', // Mobile browser force fresh
-                  'Pragma': 'no-cache'
+                  'Cache-Control': 'no-cache, no-store, must-revalidate',
+                  'Pragma': 'no-cache',
+                  'Expires': '0'
               },
               cache: 'no-store', // Prevent mobile caching of API responses
               signal: controller.signal
           };
           if (body) options.body = JSON.stringify(body);
           
-          const response = await fetch(`/api/proxy?path=${encodeURIComponent(path)}`, options);
+          const response = await fetch(`/api/proxy?path=${encodeURIComponent(pathWithTs)}`, options);
           clearTimeout(timeoutId);
           
           // Check content type
           const contentType = response.headers.get("content-type");
           if (contentType && (contentType.includes("text/html") || contentType.includes("text/plain"))) {
-             // Treat HTML responses (often 404/500 from hosting) as API unavailability
-             throw new Error("API_UNAVAILABLE");
+             // Treat HTML responses (often 404/500 from hosting) as API unavailability, 
+             // UNLESS it's a valid text response we expect (rare for JSON API)
+             // We'll try to parse it anyway if it looks like JSON, otherwise fail.
           }
 
           const text = await response.text();
@@ -238,9 +243,12 @@ const App: React.FC = () => {
 
   // --- Auth Handlers (Hybrid: Server -> Local Fallback) ---
   const handleLogin = async (username: string, pass: string) => {
-      
+      // Sanitize inputs
+      const safeUser = username.trim();
+      const safePass = pass.trim();
+
       const performLocalLogin = () => {
-          const foundUser = localUsers.find(u => u.username === username && u.password === pass);
+          const foundUser = localUsers.find(u => u.username === safeUser && u.password === safePass);
           if (foundUser) {
               completeLogin(foundUser.username, foundUser.role);
               return true;
@@ -251,7 +259,7 @@ const App: React.FC = () => {
       // CHANGED: Always try server first using skipOfflineCheck=true
       try {
           // Pass 'true' as the last argument to force online check even if isOfflineMode is true
-          const res = await apiCall('_system/login', 'POST', { username, password: pass }, 0, true);
+          const res = await apiCall('_system/login', 'POST', { username: safeUser, password: safePass }, 0, true);
           
           if (res.success) {
               // Server login success -> We are back online!
@@ -306,15 +314,18 @@ const App: React.FC = () => {
   const handleCreateUser = async (user: string, pass: string, role: 'admin' | 'user') => {
       if (!currentUser || currentUser.role !== 'admin') throw new Error("Access Denied");
       
+      const safeUser = user.trim();
+      const safePass = pass.trim();
+
       if (!isOfflineMode) {
         try {
-            await apiCall('_system/manage_user', 'POST', { targetUser: user, password: pass, role });
+            await apiCall('_system/manage_user', 'POST', { targetUser: safeUser, password: safePass, role });
         } catch (err: any) {
             if (err.message !== "API_UNAVAILABLE") throw err;
         }
       }
 
-      const newLocalUsers = [...localUsers.filter(u => u.username !== user), { username: user, password: pass, role }];
+      const newLocalUsers = [...localUsers.filter(u => u.username !== safeUser), { username: safeUser, password: safePass, role }];
       setLocalUsers(newLocalUsers);
       localStorage.setItem(LS_KEYS.USERS, JSON.stringify(newLocalUsers));
   };
@@ -322,21 +333,25 @@ const App: React.FC = () => {
   const handleUpdateUser = async (oldUsername: string, newUsername: string, newPass: string, newRole: 'admin' | 'user') => {
       if (!currentUser || currentUser.role !== 'admin') throw new Error("Access Denied");
       
+      const safeOld = oldUsername.trim();
+      const safeNew = newUsername.trim();
+      const safePass = newPass.trim();
+
       // Update Local State First
       let newLocalUsers = [...localUsers];
       
       // Check if username is changing
-      if (oldUsername !== newUsername) {
-          if (newLocalUsers.some(u => u.username === newUsername)) {
+      if (safeOld !== safeNew) {
+          if (newLocalUsers.some(u => u.username === safeNew)) {
               throw new Error("نام کاربری جدید تکراری است");
           }
           // Remove old, add new
-          newLocalUsers = newLocalUsers.filter(u => u.username !== oldUsername);
-          newLocalUsers.push({ username: newUsername, password: newPass, role: newRole });
+          newLocalUsers = newLocalUsers.filter(u => u.username !== safeOld);
+          newLocalUsers.push({ username: safeNew, password: safePass, role: newRole });
       } else {
           // Just update password/role
           newLocalUsers = newLocalUsers.map(u => 
-              u.username === oldUsername ? { ...u, password: newPass, role: newRole } : u
+              u.username === safeOld ? { ...u, password: safePass, role: newRole } : u
           );
       }
       
@@ -346,7 +361,7 @@ const App: React.FC = () => {
       // Attempt API sync
       if (!isOfflineMode) {
           try {
-              await apiCall('_system/manage_user', 'POST', { targetUser: newUsername, password: newPass, role: newRole });
+              await apiCall('_system/manage_user', 'POST', { targetUser: safeNew, password: safePass, role: newRole });
           } catch(e) {}
       }
       
@@ -383,9 +398,11 @@ const App: React.FC = () => {
   const handleChangePassword = async (newPass: string) => {
       if (!currentUser) return;
       
+      const safePass = newPass.trim();
+
       // Update local state
       const newLocalUsers = localUsers.map(u => 
-          u.username === currentUser.username ? { ...u, password: newPass } : u
+          u.username === currentUser.username ? { ...u, password: safePass } : u
       );
       setLocalUsers(newLocalUsers);
       localStorage.setItem(LS_KEYS.USERS, JSON.stringify(newLocalUsers));
@@ -394,7 +411,7 @@ const App: React.FC = () => {
       if (!isOfflineMode) {
           try {
               // Note: using manage_user for self update if API supports it, otherwise fallback
-              await apiCall('_system/manage_user', 'POST', { targetUser: currentUser.username, password: newPass, role: currentUser.role });
+              await apiCall('_system/manage_user', 'POST', { targetUser: currentUser.username, password: safePass, role: currentUser.role });
           } catch(e) {}
       }
       alert("رمز عبور با موفقیت تغییر کرد.");

@@ -35,11 +35,26 @@ export async function onRequest(context) {
   // 1. LOGIN Handler (Server-Side Check)
   if (path === "_system/login" && method === "POST") {
       try {
-          const body = await context.request.json();
+          let body;
+          try {
+            body = await context.request.json();
+          } catch(e) {
+            return new Response(JSON.stringify({ success: false, message: "Invalid Request Body" }), { status: 400 });
+          }
+          
           const { username, password } = body;
+          
+          if (!username) return new Response(JSON.stringify({ success: false, message: "Username required" }), { status: 400 });
 
           // Fetch user specific data securely
-          const userRes = await fetch(`${dbUrl}/users/${username}.json?auth=${SECRET}`);
+          // Encode username to handle spaces, Persian characters, etc.
+          const userRes = await fetch(`${dbUrl}/users/${encodeURIComponent(username)}.json?auth=${SECRET}`);
+          
+          if (!userRes.ok) {
+             // If firebase returns error (e.g. 404 for invalid path structure, though usually returns null for data)
+             return new Response(JSON.stringify({ success: false, message: "DB Error" }), { status: 502 });
+          }
+
           const userData = await userRes.json();
 
           // SCENARIO 1: User exists in DB
@@ -81,7 +96,7 @@ export async function onRequest(context) {
           const { targetUser, password, role } = body;
           
           const payload = { password, role };
-          const res = await fetch(`${dbUrl}/users/${targetUser}.json?auth=${SECRET}`, {
+          const res = await fetch(`${dbUrl}/users/${encodeURIComponent(targetUser)}.json?auth=${SECRET}`, {
               method: 'PUT',
               body: JSON.stringify(payload)
           });
@@ -122,6 +137,7 @@ export async function onRequest(context) {
   }
 
   // Standard Logic
+  // Ensure path is safe? Firebase handles URL encoding, but we should be careful.
   const firebaseUrl = `${dbUrl}/${path}.json?auth=${SECRET}`;
   
   try {
