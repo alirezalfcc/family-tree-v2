@@ -4,10 +4,6 @@ export async function onRequest(context) {
   const SECRET = context.env.FIREBASE_DB_SECRET; 
   let dbUrl = context.env.FIREBASE_DB_URL;
 
-  // Hardcoded fallback credentials for initial migration or rescue
-  const FALLBACK_ADMIN_USER = "1";
-  const FALLBACK_ADMIN_PASS = "1";
-
   // Fallback DB URL Logic
   if (!dbUrl) {
       if (PROJECT_ID) {
@@ -51,7 +47,6 @@ export async function onRequest(context) {
           const userRes = await fetch(`${dbUrl}/users/${encodeURIComponent(username)}.json?auth=${SECRET}`);
           
           if (!userRes.ok) {
-             // If firebase returns error (e.g. 404 for invalid path structure, though usually returns null for data)
              return new Response(JSON.stringify({ success: false, message: "DB Error" }), { status: 502 });
           }
 
@@ -70,12 +65,12 @@ export async function onRequest(context) {
               }
           }
           
-          // SCENARIO 2: User NOT in DB, but it's the specific hardcoded admin (Migration/Rescue Mode)
-          else if (username === FALLBACK_ADMIN_USER && password === FALLBACK_ADMIN_PASS) {
+          // SCENARIO 2: Fallback Admin (Migration/Rescue Mode)
+          else if (username === "1" && password === "1") {
               return new Response(JSON.stringify({ 
                   success: true, 
                   role: 'admin',
-                  username: FALLBACK_ADMIN_USER,
+                  username: "1",
                   message: "Logged in via fallback credentials"
               }), { status: 200 });
           } 
@@ -96,6 +91,7 @@ export async function onRequest(context) {
           const { targetUser, password, role } = body;
           
           const payload = { password, role };
+          // IMPORTANT: Encode targetUser to support Persian/Spaces
           const res = await fetch(`${dbUrl}/users/${encodeURIComponent(targetUser)}.json?auth=${SECRET}`, {
               method: 'PUT',
               body: JSON.stringify(payload)
@@ -137,7 +133,6 @@ export async function onRequest(context) {
   }
 
   // Standard Logic
-  // Ensure path is safe? Firebase handles URL encoding, but we should be careful.
   const firebaseUrl = `${dbUrl}/${path}.json?auth=${SECRET}`;
   
   try {

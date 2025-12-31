@@ -8,9 +8,9 @@ import TabNavigation from './components/TabNavigation';
 import StatisticsDashboard from './components/StatisticsDashboard';
 import RelationshipCalculator from './components/RelationshipCalculator';
 import AuthModal from './components/AuthModal';
-import TabRelationshipMap from './components/TabRelationshipMap'; // New
+import TabRelationshipMap from './components/TabRelationshipMap';
 import { familyData as initialData } from './data';
-import { Person, FamilyTab, ViewMode, ListFilter, User } from './types';
+import { Person, FamilyTab, ViewMode, ListFilter } from './types';
 import { 
   flattenTree, 
   ExtendedPerson, 
@@ -23,7 +23,7 @@ import {
 } from './utils/genealogy';
 import { exportToSVG } from './utils/svgExporter';
 
-const APP_VERSION = "v4.4 Mobile Login Fix";
+const APP_VERSION = "v4.6 Stable";
 
 // Local Storage Keys
 const LS_KEYS = {
@@ -40,12 +40,12 @@ const App: React.FC = () => {
   // --- Auth States ---
   const [currentUser, setCurrentUser] = useState<{ username: string; role: 'admin' | 'user' } | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [localUsers, setLocalUsers] = useState<any[]>([]); // Manage users locally for offline mode
+  const [localUsers, setLocalUsers] = useState<any[]>([]); 
   
   // --- UI States ---
   const [viewMode, setViewMode] = useState<ViewMode>('rich_tree'); 
   const [listFilter, setListFilter] = useState<ListFilter>('all');
-  const [viewRootId, setViewRootId] = useState<string | null>(null); // For "Show from this person down"
+  const [viewRootId, setViewRootId] = useState<string | null>(null); 
   const [searchGlobal, setSearchGlobal] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -60,46 +60,35 @@ const App: React.FC = () => {
   const [slideshowActive, setSlideshowActive] = useState(false);
   const [slideDelay, setSlideDelay] = useState(3); 
 
-  const [showSettings, setShowSettings] = useState(false); // Used for AuthModal
+  const [showSettings, setShowSettings] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
-  const [showMap, setShowMap] = useState(false); // New Map State
+  const [showMap, setShowMap] = useState(false);
   
-  const [marqueeText, setMarqueeText] = useState("خوش آمدید. نسخه پیش‌نمایش (بدون سرور).");
+  const [marqueeText, setMarqueeText] = useState("خوش آمدید.");
   
   const [layoutConfig, setLayoutConfig] = useState<Record<string, any>>({ all: {}, male: {}, female: {} });
 
   // --- Computed ---
-  // Filter out soft-deleted tabs for the main view
   const visibleTabs = useMemo(() => tabs.filter(t => !t.deleted), [tabs]);
-  
-  // Get recycled tabs (for admin)
   const recycledTabs = useMemo(() => tabs.filter(t => t.deleted), [tabs]);
 
   const activeTab = useMemo(() => visibleTabs.find(t => t.id === activeTabId) || visibleTabs[0] || { id: 'dummy', title: 'خالی', data: { id: 'root', name: 'خالی', children: [] } }, [visibleTabs, activeTabId]);
   
-  // **PERMISSION LOGIC**: Can edit ONLY if isAuthenticated AND (Admin OR Owner OR SharedWith)
   const canEditActiveTab = useMemo(() => {
       if (!isAuthenticated || !currentUser) return false;
       if (currentUser.role === 'admin') return true;
       if (!activeTab || activeTab.id === 'dummy') return false;
-      // Check ownership or sharing
       return activeTab.owner === currentUser.username || activeTab.sharedWith?.includes(currentUser.username);
   }, [isAuthenticated, currentUser, activeTab]);
 
   const filteredTreeData = useMemo(() => {
      let baseData = activeTab.data;
-     
-     // 1. Apply View Root Filter (Show from specific person down)
      if (viewRootId) {
          const foundNode = findNodeById(baseData, viewRootId);
-         if (foundNode) {
-             baseData = foundNode;
-         }
+         if (foundNode) baseData = foundNode;
      }
-
-     // 2. Apply Gender Filter
      if (listFilter === 'all') return baseData;
      const filtered = filterTree(baseData, listFilter);
      return filtered || baseData; 
@@ -109,11 +98,7 @@ const App: React.FC = () => {
     return flattenTree(activeTab.data);
   }, [activeTab.data]);
 
-  // Combined Members for Global Search (Consider Linked Tabs prioritization)
   const allTabsMembers = useMemo(() => {
-    // If Global Search is ON, return everything.
-    // If OFF, return Active + Linked Tabs
-    
     let targetTabs = visibleTabs;
     if (!searchGlobal && activeTab.linkedTabIds) {
         targetTabs = visibleTabs.filter(t => t.id === activeTab.id || activeTab.linkedTabIds?.includes(t.id));
@@ -127,8 +112,6 @@ const App: React.FC = () => {
     });
   }, [visibleTabs, searchGlobal, activeTab]);
 
-  // Special computed property for Auto-Complete in PersonDetails
-  // This always includes connected tabs even if global search is off, to find spouses etc.
   const searchScopeMembers = useMemo(() => {
       let targetTabs = [activeTab];
       if (activeTab.linkedTabIds) {
@@ -144,75 +127,67 @@ const App: React.FC = () => {
   const searchResults = useMemo(() => {
     if (!searchTerm || searchTerm.trim().length < 2) return [];
     const term = searchTerm.trim().toLowerCase();
-    
     return allTabsMembers.filter((person: any) => {
         const fullName = `${person.name} ${person.surname || ''}`.toLowerCase();
         return fullName.includes(term) || person.name.toLowerCase().includes(term);
     }).slice(0, 20);
   }, [searchTerm, allTabsMembers]);
 
-  // Load Local Users on Mount
   useEffect(() => {
       const storedUsers = localStorage.getItem(LS_KEYS.USERS);
       if (storedUsers) {
           setLocalUsers(JSON.parse(storedUsers));
       } else {
-          // Default Admin for offline mode
           const defaultAdmin = { username: '1', password: '1', role: 'admin' };
           setLocalUsers([defaultAdmin]);
           localStorage.setItem(LS_KEYS.USERS, JSON.stringify([defaultAdmin]));
       }
   }, []);
 
-  // --- API Functions (Optimized for Mobile/Preview) ---
+  // --- API Functions ---
   const apiCall = async (path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', body?: any, retryCount = 0, skipOfflineCheck = false): Promise<any> => {
       
-      // 1. FAST EXIT: If we already detected offline mode AND we are not forcing a check
       if (isOfflineMode && !skipOfflineCheck) {
           throw new Error("API_UNAVAILABLE");
       }
 
       const controller = new AbortController();
-      // Increased timeout to 30s for mobile stability
-      const timeoutId = setTimeout(() => controller.abort(), 30000); 
+      const timeoutId = setTimeout(() => controller.abort(), 20000); 
 
       try {
-          // Add timestamp to prevent caching aggression
-          const separator = path.includes('?') ? '&' : '?';
-          const pathWithTs = `${path}${separator}_t=${Date.now()}`;
-
           const options: RequestInit = {
               method,
               headers: { 
-                  'Content-Type': 'application/json',
-                  'Cache-Control': 'no-cache, no-store, must-revalidate',
-                  'Pragma': 'no-cache',
-                  'Expires': '0'
+                  'Content-Type': 'application/json'
               },
-              cache: 'no-store', // Prevent mobile caching of API responses
+              cache: 'no-store',
               signal: controller.signal
           };
           if (body) options.body = JSON.stringify(body);
           
-          const response = await fetch(`/api/proxy?path=${encodeURIComponent(pathWithTs)}`, options);
+          // FIX: Add timestamp as a separate query parameter outside of 'path'
+          // This ensures the server sees 'path=_system/login' cleanly, while browser sees a unique URL.
+          const proxyUrl = `/api/proxy?path=${encodeURIComponent(path)}&_t=${Date.now()}`;
+          
+          const response = await fetch(proxyUrl, options);
           clearTimeout(timeoutId);
           
-          // Check content type
           const contentType = response.headers.get("content-type");
           if (contentType && (contentType.includes("text/html") || contentType.includes("text/plain"))) {
-             // Treat HTML responses (often 404/500 from hosting) as API unavailability, 
-             // UNLESS it's a valid text response we expect (rare for JSON API)
-             // We'll try to parse it anyway if it looks like JSON, otherwise fail.
+             if (!response.ok) throw new Error("API_UNAVAILABLE");
           }
 
           const text = await response.text();
-          if (!text) throw new Error("API_UNAVAILABLE"); // Empty response
+          if (!text) {
+              if (response.ok) return {}; 
+              throw new Error("API_UNAVAILABLE");
+          }
 
           let json;
           try {
              json = JSON.parse(text);
           } catch (e) {
-             console.warn("JSON Parse Error (likely preview mode):", e);
+             console.warn("JSON Parse Error:", e);
              throw new Error("API_UNAVAILABLE");
           }
 
@@ -225,15 +200,12 @@ const App: React.FC = () => {
       } catch (error: any) {
           clearTimeout(timeoutId);
           
-          // Retry Logic for Network Errors (Once)
           if (retryCount < 1 && (error.name === 'AbortError' || error.message === "Failed to fetch" || error.message === "API_UNAVAILABLE")) {
               console.log(`Retrying API call (${retryCount + 1})...`);
               return apiCall(path, method, body, retryCount + 1, skipOfflineCheck);
           }
 
-          if (error.name === 'AbortError') {
-              throw new Error("API_UNAVAILABLE"); // Timeout treated as offline/unavailable
-          }
+          if (error.name === 'AbortError') throw new Error("API_UNAVAILABLE");
           if (error.message === "API_UNAVAILABLE" || error.message.includes("JSON") || error.message.includes("Unexpected token")) {
               throw new Error("API_UNAVAILABLE");
           }
@@ -241,9 +213,8 @@ const App: React.FC = () => {
       }
   };
 
-  // --- Auth Handlers (Hybrid: Server -> Local Fallback) ---
+  // --- Auth Handlers ---
   const handleLogin = async (username: string, pass: string) => {
-      // Sanitize inputs
       const safeUser = username.trim();
       const safePass = pass.trim();
 
@@ -256,13 +227,11 @@ const App: React.FC = () => {
           return false;
       };
 
-      // CHANGED: Always try server first using skipOfflineCheck=true
+      // Force try server first (skipOfflineCheck = true)
       try {
-          // Pass 'true' as the last argument to force online check even if isOfflineMode is true
           const res = await apiCall('_system/login', 'POST', { username: safeUser, password: safePass }, 0, true);
           
           if (res.success) {
-              // Server login success -> We are back online!
               setIsOfflineMode(false);
               setOfflineReason('');
               completeLogin(res.username, res.role);
@@ -271,22 +240,15 @@ const App: React.FC = () => {
               throw new Error(res.message);
           }
       } catch (err: any) {
-          // If server error is strictly network related, fallback to local
           if (err.message === "API_UNAVAILABLE" || err.message === "Failed to fetch" || err.name === 'TypeError') {
               console.warn("Backend unavailable for login, checking local storage.");
-              
-              // Only set offline mode if we weren't already
               if (!isOfflineMode) {
                   setIsOfflineMode(true); 
                   setOfflineReason("عدم دسترسی به سرور");
               }
-              
-              if (performLocalLogin()) {
-                  return;
-              }
-              throw new Error("ارتباط با سرور برقرار نشد و کاربر آفلاین یافت نشد. (لطفا اتصال اینترنت را بررسی کنید)");
+              if (performLocalLogin()) return;
+              throw new Error("ارتباط با سرور برقرار نشد و کاربر آفلاین یافت نشد.");
           } else {
-              // Valid response from server but error (e.g. Wrong Password)
               throw err;
           }
       }
@@ -298,7 +260,6 @@ const App: React.FC = () => {
       setCurrentUser(userObj);
       localStorage.setItem(LS_KEYS.SESSION, JSON.stringify(userObj));
       setShowSettings(false);
-      // Re-process tabs visibility with new user
       fetchData(userObj); 
   };
 
@@ -307,7 +268,6 @@ const App: React.FC = () => {
       setCurrentUser(null);
       localStorage.removeItem(LS_KEYS.SESSION);
       setShowSettings(false);
-      // Immediately re-process data to hide private tabs
       fetchData(null); 
   };
 
@@ -337,41 +297,32 @@ const App: React.FC = () => {
       const safeNew = newUsername.trim();
       const safePass = newPass.trim();
 
-      // Update Local State First
       let newLocalUsers = [...localUsers];
-      
-      // Check if username is changing
       if (safeOld !== safeNew) {
           if (newLocalUsers.some(u => u.username === safeNew)) {
               throw new Error("نام کاربری جدید تکراری است");
           }
-          // Remove old, add new
           newLocalUsers = newLocalUsers.filter(u => u.username !== safeOld);
           newLocalUsers.push({ username: safeNew, password: safePass, role: newRole });
       } else {
-          // Just update password/role
           newLocalUsers = newLocalUsers.map(u => 
               u.username === safeOld ? { ...u, password: safePass, role: newRole } : u
           );
       }
-      
       setLocalUsers(newLocalUsers);
       localStorage.setItem(LS_KEYS.USERS, JSON.stringify(newLocalUsers));
 
-      // Attempt API sync
       if (!isOfflineMode) {
           try {
               await apiCall('_system/manage_user', 'POST', { targetUser: safeNew, password: safePass, role: newRole });
           } catch(e) {}
       }
-      
       alert("کاربر با موفقیت ویرایش شد.");
   };
 
   const handleDeleteUser = async (targetUser: string) => {
       if (!currentUser || currentUser.role !== 'admin') throw new Error("Access Denied");
       if (targetUser === currentUser.username) throw new Error("نمیتوانید حساب خودتان را حذف کنید.");
-      // PROTECT ROOT ADMIN
       if (targetUser === '1') throw new Error("حساب مدیر اصلی سیستم (1) قابل حذف نیست.");
 
       const newLocalUsers = localUsers.filter(u => u.username !== targetUser);
@@ -388,29 +339,24 @@ const App: React.FC = () => {
 
       if (!isOfflineMode) {
           try {
-              // API call if exists
+              // API call if implemented
           } catch (e) { console.warn("Delete user API failed", e); }
       }
-      
-      alert(`کاربر ${targetUser} حذف شد و خاندان‌های او به سطل بازیافت منتقل شدند.`);
+      alert(`کاربر ${targetUser} حذف شد.`);
   };
 
   const handleChangePassword = async (newPass: string) => {
       if (!currentUser) return;
-      
       const safePass = newPass.trim();
-
-      // Update local state
+      
       const newLocalUsers = localUsers.map(u => 
           u.username === currentUser.username ? { ...u, password: safePass } : u
       );
       setLocalUsers(newLocalUsers);
       localStorage.setItem(LS_KEYS.USERS, JSON.stringify(newLocalUsers));
       
-      // API Call
       if (!isOfflineMode) {
           try {
-              // Note: using manage_user for self update if API supports it, otherwise fallback
               await apiCall('_system/manage_user', 'POST', { targetUser: currentUser.username, password: safePass, role: currentUser.role });
           } catch(e) {}
       }
@@ -432,7 +378,6 @@ const App: React.FC = () => {
   const handleRestore = async (data: any) => {
       if (!currentUser || currentUser.role !== 'admin') throw new Error("Access Denied");
       
-      // Fallback for offline mode or full JSON restore
       const restoreLocalState = (dataToRestore: any) => {
           if (dataToRestore.familyTabs) setTabs(dataToRestore.familyTabs);
           if (dataToRestore.settings?.marquee) setMarqueeText(dataToRestore.settings.marquee);
@@ -440,20 +385,14 @@ const App: React.FC = () => {
               setLocalUsers(dataToRestore.users);
               localStorage.setItem(LS_KEYS.USERS, JSON.stringify(dataToRestore.users));
           }
-          // Save tab data to local storage
           localStorage.setItem(LS_KEYS.DATA, JSON.stringify(dataToRestore.familyTabs || tabs));
       };
 
       try {
-          // If online, try to restore to server
           if (!isOfflineMode) {
              await apiCall('_system/restore', 'POST', data);
           }
-          
-          // Also update local state regardless of online status to show immediate change
-          // Note: API restore overwrites the DB, but we need to update React state too.
           restoreLocalState(data);
-
       } catch (err: any) {
           if (err.message === "API_UNAVAILABLE") {
               restoreLocalState(data);
@@ -467,23 +406,20 @@ const App: React.FC = () => {
   const fetchData = async (userOverride?: { username: string; role: 'admin' | 'user' } | null) => {
       try {
           let data;
-          // Try to fetch from server first (skipOfflineCheck not needed here as logic handles error catch)
-          // But to allow "healing" from offline state if called manually:
           try {
-               // Use skipOfflineCheck = true only if user manually retries, but standard load respects offline mode.
-               // However, to fix "stuck offline", let's attempt it if isOfflineMode is true but this is a reload.
                const shouldForce = isOfflineMode; 
                data = await apiCall('', 'GET', undefined, 0, shouldForce); 
                
-               // If successful, we are online
-               setIsOfflineMode(false);
-               setOfflineReason('');
+               if (isOfflineMode) {
+                   setIsOfflineMode(false);
+                   setOfflineReason('');
+               }
           } catch (e) { throw e; }
 
           if (!data) throw new Error("Fetching local");
           processFetchedData(data, userOverride);
       } catch (error: any) {
-          console.warn("Offline/Mock Mode Active:", error);
+          console.warn("Loading Offline Data:", error);
           if (!isOfflineMode) {
               setIsOfflineMode(true);
               setOfflineReason("اتصال به سرور برقرار نیست (حالت پیش‌نمایش)");
@@ -558,7 +494,6 @@ const App: React.FC = () => {
           }
           if (!t.isPublic) {
               if (effectiveUser) {
-                  // Check admin, owner, or sharedWith list
                   return effectiveUser.role === 'admin' || 
                          t.owner === effectiveUser.username || 
                          t.sharedWith?.includes(effectiveUser.username);
@@ -621,7 +556,6 @@ const App: React.FC = () => {
     if (activeTabId === id) setActiveTabId(remaining[0]?.id || '');
   };
 
-  // Restore with optional new owner assignment
   const handleRestoreTab = (id: string, newOwner?: string) => {
       const newTabs = tabs.map(t => {
           if (t.id === id) {
@@ -629,7 +563,7 @@ const App: React.FC = () => {
                   ...t, 
                   deleted: false, 
                   deletedAt: undefined,
-                  owner: newOwner || t.owner // Assign new owner if provided
+                  owner: newOwner || t.owner
               };
           }
           return t;
@@ -643,7 +577,6 @@ const App: React.FC = () => {
       saveTabsToCloud(newTabs);
   };
 
-  // --- Admin Tab Management (Transfer & Copy & Share) ---
   const handleTransferTab = (tabId: string, newOwner: string) => {
       if (!currentUser || currentUser.role !== 'admin') return;
       const newTabs = tabs.map(t => t.id === tabId ? { ...t, owner: newOwner } : t);
@@ -661,7 +594,7 @@ const App: React.FC = () => {
           id: `tab-${Date.now()}`,
           title: `${sourceTab.title} (کپی)`,
           owner: targetUser,
-          isPublic: false // Default to private for copies
+          isPublic: false 
       };
       const newTabs = [...tabs, newTab];
       saveTabsToCloud(newTabs);
@@ -670,7 +603,6 @@ const App: React.FC = () => {
 
   const handleShareTab = (tabId: string, targetUser: string) => {
       if (!currentUser) return;
-      // Only Admin or Owner can share
       const tab = tabs.find(t => t.id === tabId);
       if (!tab) return;
       if (currentUser.role !== 'admin' && tab.owner !== currentUser.username) return alert("شما اجازه اشتراک‌گذاری این خاندان را ندارید.");
@@ -707,8 +639,6 @@ const App: React.FC = () => {
       }
 
       const newTabName = `خاندان ${nodeToExtract.name} ${nodeToExtract.surname || ''}`;
-      
-      // Deep clone using JSON serialization
       const clonedData = JSON.parse(JSON.stringify(nodeToExtract));
       
       const newTab: FamilyTab = {
@@ -722,14 +652,12 @@ const App: React.FC = () => {
       const newTabs = [...tabs, newTab];
       saveTabsToCloud(newTabs);
       
-      // Switch to new tab and clear details
       setActiveTabId(newTab.id);
       setDetailedPerson(null);
       
       alert(`خاندان جدید "${newTabName}" با موفقیت ایجاد شد.`);
   };
 
-  // --- Merged Tab Creation (Super Tree) ---
   const handleCreateMergedTab = (selectedTabIds: string[]) => {
       if (selectedTabIds.length < 2) return alert("لطفا حداقل ۲ خاندان را انتخاب کنید.");
       
@@ -739,12 +667,10 @@ const App: React.FC = () => {
       const mergedRootId = `merged-${Date.now()}`;
       const tabTitle = `تلفیق: ${selectedTabs.map(t => t.title).join(" و ")}`;
 
-      // Create a super root containing the roots of selected tabs as children
       const mergedData: Person = {
           id: mergedRootId,
           name: "اتحاد خاندان‌ها",
           children: selectedTabs.map(t => {
-              // We tag the root of each tree with original info
               return {
                   ...t.data,
                   originalTabId: t.id,
@@ -758,17 +684,16 @@ const App: React.FC = () => {
           title: tabTitle,
           data: mergedData,
           owner: currentUser?.username || 'admin',
-          isPublic: false // Default private
+          isPublic: false 
       };
 
       const newTabs = [...tabs, newTab];
       saveTabsToCloud(newTabs);
       setActiveTabId(newTab.id);
-      setShowMap(false); // Close map
+      setShowMap(false); 
       alert(`تب تلفیقی "${tabTitle}" ایجاد شد.`);
   };
 
-  // --- Link Updating ---
   const handleUpdateLinkedTabs = (tabId: string, linkedIds: string[]) => {
       const newTabs = tabs.map(t => t.id === tabId ? { ...t, linkedTabIds: linkedIds } : t);
       saveTabsToCloud(newTabs);
@@ -814,17 +739,13 @@ const App: React.FC = () => {
      }
   }, [activeTab.data, tabs]);
 
-  // --- Navigation & Tab Switching ---
   const handlePersonNavigation = useCallback((person: ExtendedPerson | Person, keepSlideshow = false) => {
-    // Check if the person belongs to a different tab (e.g. from search or spouse click)
     let targetTabId = activeTabId;
     let personId = person.id;
 
     if ((person as any).tabId && (person as any).tabId !== activeTabId) {
         targetTabId = (person as any).tabId;
     } else {
-        // Fallback: search in all tabs if not explicitly tagged
-        // This is important for "linked spouses" who might just have an ID
         const foundTab = visibleTabs.find(t => {
              const members = flattenTree(t.data);
              return members.some(m => m.id === person.id);
@@ -834,7 +755,6 @@ const App: React.FC = () => {
 
     if (targetTabId !== activeTabId) {
         setActiveTabId(targetTabId);
-        // Delay to allow render and tree construction
         setTimeout(() => {
              const targetTab = tabs.find(t => t.id === targetTabId);
              if(targetTab) {
@@ -878,7 +798,6 @@ const App: React.FC = () => {
     }
   }, [navigatingPerson, activeMembersExtended, handlePersonNavigation]);
 
-  // --- Slideshow Logic ---
   useEffect(() => {
     let interval: any;
     if (slideshowActive) {
@@ -913,7 +832,6 @@ const App: React.FC = () => {
       if (!isOfflineMode) apiCall('settings', 'PUT', { marquee: text }).catch(() => {});
   };
 
-  // Toggle Scope Focus
   const handleToggleViewRoot = (id: string) => {
       if (viewRootId === id) {
           setViewRootId(null);
@@ -923,9 +841,6 @@ const App: React.FC = () => {
   };
 
   const headerTitle = activeTab.title.startsWith('خاندان') ? `شجره نامه ${activeTab.title}` : `شجره نامه خاندان ${activeTab.title}`;
-
-  // TARGET FOR FOCUS: Use Detailed Person OR Navigating Person
-  const targetFocusPerson = detailedPerson || navigatingPerson;
 
   if (!isLoaded) return <div className="flex items-center justify-center h-screen bg-[#f8f5f2]">در حال بارگذاری...</div>;
 
@@ -976,8 +891,6 @@ const App: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-2 p-1 order-1 md:order-2">
-             
-             {/* New Filter Dropdown */}
              <div className="relative">
                  <button 
                     onClick={(e) => { e.stopPropagation(); setShowFilterMenu(!showFilterMenu); }} 
