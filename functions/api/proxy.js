@@ -47,6 +47,20 @@ export async function onRequest(context) {
           
           if (!username) return new Response(JSON.stringify({ success: false, message: "Username required" }), { status: 400 });
 
+          // 1. Check Cloudflare Env Variables (System Admin) - PRIORITY
+          // This ensures '1'/'1' or any other hardcoded value NEVER works unless explicitly set in Env.
+          if (context.env.SYS_ADMIN_USER && context.env.SYS_ADMIN_PASS) {
+              if (username === context.env.SYS_ADMIN_USER && password === context.env.SYS_ADMIN_PASS) {
+                  return new Response(JSON.stringify({ 
+                      success: true, 
+                      role: 'admin',
+                      username: username,
+                      message: "Logged in via system credentials"
+                  }), { status: 200 });
+              }
+          }
+
+          // 2. Check Firebase Users Table
           const userRes = await fetch(`${dbUrl}/users/${encodeURIComponent(username)}.json?auth=${SECRET}`);
           
           if (!userRes.ok) {
@@ -66,19 +80,8 @@ export async function onRequest(context) {
                   return new Response(JSON.stringify({ success: false, message: "Invalid password" }), { status: 401 });
               }
           }
-          // SECURITY FIX: Use Environment Variables instead of hardcoded '1'/'1'
-          else if (context.env.SYS_ADMIN_USER && context.env.SYS_ADMIN_PASS && 
-                   username === context.env.SYS_ADMIN_USER && password === context.env.SYS_ADMIN_PASS) {
-              return new Response(JSON.stringify({ 
-                  success: true, 
-                  role: 'admin',
-                  username: username,
-                  message: "Logged in via system credentials"
-              }), { status: 200 });
-          } 
-          else {
-              return new Response(JSON.stringify({ success: false, message: "User not found" }), { status: 401 });
-          }
+          
+          return new Response(JSON.stringify({ success: false, message: "User not found" }), { status: 401 });
 
       } catch (e) {
           return new Response(JSON.stringify({ error: e.message }), { status: 500 });

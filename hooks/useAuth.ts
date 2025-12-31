@@ -12,13 +12,39 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
   const [localUsers, setLocalUsers] = useState<any[]>([]); 
 
   useEffect(() => {
+      // SECURITY FIX: Only load existing users. Do NOT create default "1"/"1" user.
       const storedUsers = localStorage.getItem(LS_KEYS.USERS);
       if (storedUsers) {
           setLocalUsers(JSON.parse(storedUsers));
       } else {
-          const defaultAdmin = { username: '1', password: '1', role: 'admin' };
-          setLocalUsers([defaultAdmin]);
-          localStorage.setItem(LS_KEYS.USERS, JSON.stringify([defaultAdmin]));
+          // Initialize empty array if no users exist. 
+          // "1"/"1" login is now strictly handled by ChatApi (Offline) or Env Vars (Online).
+          setLocalUsers([]); 
+      }
+
+      // Restore Session
+      const session = localStorage.getItem(LS_KEYS.SESSION);
+      if (session) {
+          try {
+              const userObj = JSON.parse(session);
+              
+              // SECURITY FIX: Prevent "Offline Mock Login" from persisting to "Online Live Session".
+              // If the stored session user is '1', we invalidate it immediately upon reload.
+              // This forces the attacker to re-authenticate properly against the server.
+              if (userObj.username === '1') {
+                  console.warn("Security: Invalidating mock session '1' to prevent persistent access.");
+                  localStorage.removeItem(LS_KEYS.SESSION);
+                  setIsAuthenticated(false);
+                  setCurrentUser(null);
+                  return;
+              }
+
+              setCurrentUser(userObj);
+              setIsAuthenticated(true);
+          } catch (e) {
+              console.error("Invalid Session Data");
+              localStorage.removeItem(LS_KEYS.SESSION);
+          }
       }
   }, []);
 
@@ -158,7 +184,9 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
   const handleDeleteUser = async (targetUser: string, deleteCallback: (user: string) => void) => {
       if (!currentUser || currentUser.role !== 'admin') throw new Error("Access Denied");
       if (targetUser === currentUser.username) throw new Error("نمیتوانید حساب خودتان را حذف کنید.");
-      if (targetUser === '1') throw new Error("حساب مدیر اصلی سیستم (1) قابل حذف نیست.");
+      
+      // Protection for "1" also locally, just in case
+      if (targetUser === '1') throw new Error("حساب مدیر پیش‌فرض قابل حذف نیست.");
 
       const newLocalUsers = localUsers.filter(u => u.username !== targetUser);
       setLocalUsers(newLocalUsers);
