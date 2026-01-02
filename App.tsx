@@ -25,7 +25,7 @@ import { useAuth } from './hooks/useAuth';
 import { useFamilyData } from './hooks/useFamilyData';
 import AuthContext from './context/AuthContext';
 
-const APP_VERSION = "v6.1 Final Polish";
+const APP_VERSION = "v6.4 Live Sync";
 
 const Preloader = () => (
   <div className="flex flex-col items-center justify-center h-[100dvh] bg-[#f8f5f2] text-slate-800 space-y-6 relative overflow-hidden">

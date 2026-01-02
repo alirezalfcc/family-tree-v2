@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback } from 'react';
 import { FamilyTab } from '../types';
 import { 
@@ -9,7 +10,7 @@ import {
 } from '../utils/genealogy';
 
 const LS_KEYS = {
-    DATA: 'family_tree_data_v4',
+    DATA: 'family_tree_data_v6_4', // Bumped key to force fresh seed from data.ts
     SESSION: 'auth_session'
 };
 
@@ -113,6 +114,57 @@ export const useDataPersistence = ({
             } catch (e) { throw e; }
 
             if (!data) throw new Error("Fetching local");
+
+            // Check if API returned effectively empty data
+            // This logic ensures that if the server DB is empty (e.g. fresh deployment),
+            // the default data (data.ts) is loaded as a seed, preventing the "disappearing data" issue.
+            let isEmpty = false;
+            if (!data.familyTabs && !data.id && Array.isArray(data) && data.length === 0) isEmpty = true;
+            if (data.familyTabs && data.familyTabs.length === 0) isEmpty = true;
+            if (Object.keys(data).length === 0) isEmpty = true;
+
+            if (isEmpty) {
+                 // 1. Try loading local storage first (unsaved work)
+                 const localData = localStorage.getItem(LS_KEYS.DATA);
+                 if (localData) {
+                     const parsed = JSON.parse(localData);
+                     if (parsed && parsed.length > 0) {
+                         data = { familyTabs: parsed, ...data };
+                     }
+                 }
+                 
+                 // 2. If still empty, seed with hardcoded DEFAULT DATA
+                 let stillEmpty = false; 
+                 if (!data.familyTabs || data.familyTabs.length === 0) stillEmpty = true;
+                 
+                 if (stillEmpty) {
+                     try {
+                        const module: any = await import('../data');
+                        
+                        // New Logic: Support full backup structure in data.ts
+                        if (module.defaultFamilyTabs) {
+                            data = {
+                                familyTabs: module.defaultFamilyTabs,
+                                layoutConfig: module.defaultLayoutConfig,
+                                settings: module.defaultSettings
+                            };
+                        } else {
+                            // Legacy fallback
+                            data = { 
+                                familyTabs: [{ 
+                                    id: 'default', 
+                                    title: 'خاندان پیش‌فرض', 
+                                    data: module.familyData, 
+                                    isPublic: true, 
+                                    owner: 'admin' 
+                                }],
+                                ...data
+                            };
+                        }
+                     } catch(e) { console.error("Failed to load default seed data", e); }
+                 }
+            }
+
             processFetchedData(data, userOverride);
         } catch (error: any) {
             console.warn("Loading Offline Data:", error);
@@ -127,16 +179,24 @@ export const useDataPersistence = ({
             } else {
                 // Lazy Load Default Data
                 try {
-                    const module = await import('../data');
-                    processFetchedData({ 
-                        familyTabs: [{ 
-                            id: 'default', 
-                            title: 'خاندان پیش‌فرض', 
-                            data: module.familyData, 
-                            isPublic: true, 
-                            owner: 'admin' 
-                        }] 
-                    }, userOverride);
+                    const module: any = await import('../data');
+                    if (module.defaultFamilyTabs) {
+                         processFetchedData({ 
+                            familyTabs: module.defaultFamilyTabs,
+                            layoutConfig: module.defaultLayoutConfig,
+                            settings: module.defaultSettings
+                         }, userOverride);
+                    } else {
+                        processFetchedData({ 
+                            familyTabs: [{ 
+                                id: 'default', 
+                                title: 'خاندان پیش‌فرض', 
+                                data: module.familyData, 
+                                isPublic: true, 
+                                owner: 'admin' 
+                            }] 
+                        }, userOverride);
+                    }
                 } catch (e) {
                     console.error("Failed to load default data", e);
                 }
