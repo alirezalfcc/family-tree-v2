@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ExtendedPerson, getFullIdentityLabel } from '../utils/genealogy';
 import { useAuthContext } from '../context/AuthContext';
 
@@ -21,6 +21,32 @@ interface HeaderProps {
   setSearchGlobal: (val: boolean) => void;
   title?: string;
 }
+
+const LiveClock = () => {
+    const [time, setTime] = useState(new Date());
+
+    useEffect(() => {
+        const timer = setInterval(() => setTime(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const day = time.toLocaleDateString('fa-IR', { day: 'numeric' });
+    const month = time.toLocaleDateString('fa-IR', { month: 'long' });
+    const year = time.toLocaleDateString('fa-IR', { year: 'numeric' });
+    const weekday = time.toLocaleDateString('fa-IR', { weekday: 'long' });
+    
+    // Order: Day Month Year Weekday (Right to Left in visual)
+    const dateStr = `${day} ${month} ${year} ${weekday}`;
+
+    const timeOptions: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
+
+    return (
+        <div className="hidden md:flex flex-col items-start text-[9px] md:text-[10px] text-slate-500 font-bold bg-slate-100 px-2 py-1 rounded-md ml-2">
+            <span className="tracking-widest">{dateStr}</span>
+            <span dir="ltr">{time.toLocaleTimeString('fa-IR', timeOptions)}</span>
+        </div>
+    );
+};
 
 const Header: React.FC<HeaderProps> = ({ 
   searchTerm, 
@@ -70,6 +96,7 @@ const Header: React.FC<HeaderProps> = ({
                </p>
              </div>
           </div>
+          <LiveClock />
         </div>
 
         <div className="flex-1 max-w-xl relative flex flex-col gap-1 w-full md:w-auto">
@@ -167,7 +194,7 @@ const Header: React.FC<HeaderProps> = ({
               <h2 className="text-xl font-black text-slate-800">Alireza Labaf</h2>
               <div className="text-sm font-bold text-slate-600 space-y-2">
                  <p>توسعه دهنده: <span className="text-amber-600">علیرضا لباف</span></p>
-                 <p>نسخه برنامه: <span className="text-slate-400">v3.9 Final</span></p>
+                 <p>نسخه برنامه: <span className="text-slate-400">v5.8 UI Polish</span></p>
                  <div className="border-t border-slate-100 pt-3 mt-3">
                     <p className="flex items-center justify-center gap-2" dir="ltr">
                         <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>

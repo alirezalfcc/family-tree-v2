@@ -1,4 +1,3 @@
-
 import { useState, useCallback } from 'react';
 import { productApi } from './api/productMode';
 import { chatApi } from './api/chatMode';
@@ -43,7 +42,7 @@ export const useTreenetApi = () => {
 
           // DEVELOPMENT ONLY FALLBACK
           // In production, we MUST fail if the server is down to prevent security bypass or confusion.
-          if (import.meta.env.DEV && strategy === productApi && !isOfflineMode) {
+          if ((import.meta as any).env.DEV && strategy === productApi && !isOfflineMode) {
                console.warn("Development Mode: API unavailable, switching to Mock/Chat mode.");
                setIsOfflineMode(true);
                setOfflineReason("حالت توسعه (آفلاین/ماک)");

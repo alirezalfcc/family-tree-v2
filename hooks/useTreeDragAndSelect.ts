@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import * as d3 from 'd3';
 import { Person } from '../types';
@@ -85,13 +86,39 @@ export const useTreeDragAndSelect = ({
             }
         }
 
+        startDragLogic(e.clientX, e.clientY, nodeId, newSelectedIds);
+    };
+
+    // Mobile Touch Start
+    const handleTouchStart = (e: React.TouchEvent, nodeId: string) => {
+        if (!isDragMode || viewMode !== 'vertical_tree') {
+            setConfigNodeId(nodeId);
+            return;
+        }
+        if (!isAuthenticated) return;
+
+        // Prevent zooming/panning while dragging a node
+        e.stopPropagation(); 
+        
+        const touch = e.touches[0];
+        setConfigNodeId(nodeId);
+        
+        // Mobile usually doesn't have multi-select via shift/ctrl, so straightforward logic
+        const newSelectedIds = new Set<string>();
+        newSelectedIds.add(nodeId);
+        setMultiSelectedIds(newSelectedIds);
+
+        startDragLogic(touch.clientX, touch.clientY, nodeId, newSelectedIds);
+    };
+
+    const startDragLogic = (startX: number, startY: number, nodeId: string, selectedIds: Set<string>) => {
         const allTreeNodes = treeLayout.descendants() as d3.HierarchyPointNode<Person>[];
         const nodeMap = new Map<string, d3.HierarchyPointNode<Person>>();
         allTreeNodes.forEach(n => nodeMap.set(n.data.id, n));
         
         const affectedIds = new Set<string>();
 
-        newSelectedIds.forEach((selectedId: string) => {
+        selectedIds.forEach((selectedId: string) => {
             const node = nodeMap.get(selectedId);
             if (node) {
                 affectedIds.add(node.data.id);
@@ -112,19 +139,17 @@ export const useTreeDragAndSelect = ({
         });
 
         dragState.current = {
-            startX: e.clientX,
-            startY: e.clientY,
+            startX: startX,
+            startY: startY,
             initialOffsets: initialOffsets,
             draggedIds: draggedIds
         };
 
         setDraggingNodeId(nodeId);
-    };
+    }
 
-    const handleMouseMove = useCallback((e: MouseEvent) => {
-        if (!dragState.current) return;
-        e.preventDefault();
-
+    const calculateNewOffsets = (clientX: number, clientY: number) => {
+        if (!dragState.current) return null;
         const { startX, startY, initialOffsets, draggedIds } = dragState.current;
         
         let scale = 1;
@@ -133,8 +158,8 @@ export const useTreeDragAndSelect = ({
             if (state && state.scale) scale = state.scale;
         }
 
-        const totalDx = (e.clientX - startX) / scale;
-        const totalDy = (e.clientY - startY) / scale;
+        const totalDx = (clientX - startX) / scale;
+        const totalDy = (clientY - startY) / scale;
 
         const nextOffsets = { ...customOffsetsRef.current };
 
@@ -148,11 +173,26 @@ export const useTreeDragAndSelect = ({
               };
             }
         });
+        return nextOffsets;
+    };
 
-        setCustomOffsets(nextOffsets);
+    const handleMouseMove = useCallback((e: MouseEvent) => {
+        if (!dragState.current) return;
+        e.preventDefault();
+        const nextOffsets = calculateNewOffsets(e.clientX, e.clientY);
+        if (nextOffsets) setCustomOffsets(nextOffsets);
     }, []);
 
-    const handleMouseUp = useCallback(() => {
+    const handleTouchMove = useCallback((e: TouchEvent) => {
+        if (!dragState.current) return;
+        // Important: prevent scrolling while dragging
+        if (e.cancelable) e.preventDefault();
+        const touch = e.touches[0];
+        const nextOffsets = calculateNewOffsets(touch.clientX, touch.clientY);
+        if (nextOffsets) setCustomOffsets(nextOffsets);
+    }, []);
+
+    const handleEndDrag = useCallback(() => {
         if (dragState.current) {
             dragState.current = null;
             setDraggingNodeId(null);
@@ -164,15 +204,21 @@ export const useTreeDragAndSelect = ({
 
     useEffect(() => {
         window.addEventListener('mousemove', handleMouseMove);
-        window.addEventListener('mouseup', handleMouseUp);
+        window.addEventListener('mouseup', handleEndDrag);
+        // Add passive: false to allow preventing default scroll behavior
+        window.addEventListener('touchmove', handleTouchMove, { passive: false });
+        window.addEventListener('touchend', handleEndDrag);
         return () => {
             window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
+            window.removeEventListener('mouseup', handleEndDrag);
+            window.removeEventListener('touchmove', handleTouchMove);
+            window.removeEventListener('touchend', handleEndDrag);
         };
-    }, [handleMouseMove, handleMouseUp]);
+    }, [handleMouseMove, handleTouchMove, handleEndDrag]);
 
     return {
         handleMouseDown,
+        handleTouchStart,
         draggingNodeId,
         multiSelectedIds,
         setMultiSelectedIds

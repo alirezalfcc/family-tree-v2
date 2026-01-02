@@ -18,7 +18,7 @@ interface TabNavigationProps {
   onCopyTab?: (tabId: string, targetUser: string) => void;
   onUpdateLinkedTabs?: (tabId: string, linkedIds: string[]) => void;
   onShareTab?: (tabId: string, targetUser: string) => void;
-  onUnshareTab?: (tabId: string, targetUser: string) => void;
+  onUnshare?: (tabId: string, targetUser: string) => void;
 }
 
 const TabNavigation: React.FC<TabNavigationProps> = ({
@@ -120,7 +120,7 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
                             onClick={() => onSelectTab(tab.id)}
                         >
                             <div className={`
-                                w-full flex items-center gap-1.5 px-2 py-2 rounded-t-xl transition-all h-full relative
+                                w-full flex items-center gap-1.5 px-2 py-2 rounded-t-xl transition-all h-full relative overflow-hidden
                                 ${isActive 
                                 ? 'bg-amber-500 text-white shadow-lg font-bold transform scale-[1.02] origin-bottom justify-start' 
                                 : 'bg-white text-slate-500 hover:bg-amber-50 border border-transparent hover:border-amber-100 justify-center'}
@@ -149,12 +149,16 @@ const TabNavigation: React.FC<TabNavigationProps> = ({
                                         onClick={e => e.stopPropagation()}
                                     />
                                 ) : (
-                                    <span className={`text-sm truncate w-full ${isActive ? 'text-right' : 'text-center'}`}>{tab.title}</span>
+                                    <div className={`overflow-hidden w-full relative ${isActive ? 'text-right' : 'text-center'}`}>
+                                        <span className="block truncate group-hover:overflow-visible group-hover:animate-tab-scroll text-sm">
+                                            {tab.title}
+                                        </span>
+                                    </div>
                                 )}
 
                                 {/* Settings Gear Icon (Active Only & Authorized) */}
                                 {canManage && isActive && (
-                                    <div className="relative">
+                                    <div className="relative flex-shrink-0">
                                         <button 
                                             onClick={(e) => { 
                                                 e.stopPropagation(); 

@@ -17,7 +17,8 @@ export const chatApi: ApiStrategy = {
         console.log(`[ChatMode API] ${method} ${path}`, body);
 
         // 1. شبیه‌سازی لاگین
-        if (path === '_system/login' && method === 'POST') {
+        // Update: Handle both 'login' and '_system/login'
+        if ((path === 'login' || path === '_system/login') && method === 'POST') {
             const { username, password } = body;
             
             // بررسی ادمین پیش‌فرض

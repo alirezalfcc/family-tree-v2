@@ -140,7 +140,7 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
   }, [hierarchy, viewMode, isSimple]);
 
   // Use the Drag Hook
-  const { handleMouseDown, draggingNodeId, multiSelectedIds, setMultiSelectedIds } = useTreeDragAndSelect({
+  const { handleMouseDown, handleTouchStart, draggingNodeId, multiSelectedIds, setMultiSelectedIds } = useTreeDragAndSelect({
       isDragMode,
       viewMode,
       isAuthenticated,
@@ -446,6 +446,7 @@ const FamilyTreeView: React.FC<FamilyTreeViewProps> = ({
                     id={`node-container-${node.data.id}`}
                     key={node.data.id}
                     onMouseDown={(e) => handleMouseDown(e, node.data.id)}
+                    onTouchStart={(e) => handleTouchStart(e, node.data.id)}
                     onClick={(e) => handleNodeClickForConfig(e, node.data)}
                     style={{
                       position: 'absolute',

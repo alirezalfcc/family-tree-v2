@@ -25,7 +25,7 @@ import { useAuth } from './hooks/useAuth';
 import { useFamilyData } from './hooks/useFamilyData';
 import AuthContext from './context/AuthContext';
 
-const APP_VERSION = "v5.4 Optimized";
+const APP_VERSION = "v5.8 UI Polish";
 
 const App: React.FC = () => {
   // --- Custom Hooks ---
@@ -266,7 +266,7 @@ const App: React.FC = () => {
                   </button>
 
                   {showFilterMenu && (
-                      <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-2xl shadow-2xl border border-slate-200 p-3 z-50 animate-in fade-in zoom-in-95 origin-top-left" onClick={e => e.stopPropagation()}>
+                      <div className="absolute top-full right-0 mt-2 w-56 bg-white rounded-2xl shadow-2xl border border-slate-200 p-3 z-50 animate-in fade-in zoom-in-95 origin-top-right" onClick={e => e.stopPropagation()}>
                           <div className="space-y-1 mb-3">
                               <p className="text-[10px] text-slate-400 font-bold mb-1 px-1">جنسیت</p>
                               <button onClick={() => setListFilter('all')} className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all ${listFilter === 'all' ? 'bg-slate-100 text-slate-800' : 'hover:bg-slate-50 text-slate-600'}`}>
