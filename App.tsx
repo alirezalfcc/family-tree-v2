@@ -25,7 +25,35 @@ import { useAuth } from './hooks/useAuth';
 import { useFamilyData } from './hooks/useFamilyData';
 import AuthContext from './context/AuthContext';
 
-const APP_VERSION = "v5.8 UI Polish";
+const APP_VERSION = "v6.1 Final Polish";
+
+const Preloader = () => (
+  <div className="flex flex-col items-center justify-center h-screen bg-[#f8f5f2] text-slate-800 space-y-6 relative overflow-hidden">
+    <div className="absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/graphy.png')] opacity-10"></div>
+    
+    <div className="relative w-32 h-32 z-10">
+       <div className="absolute inset-0 border-4 border-slate-200 rounded-full"></div>
+       <div className="absolute inset-0 border-4 border-amber-500 rounded-full border-t-transparent animate-spin"></div>
+       <div className="absolute inset-0 flex items-center justify-center text-amber-600">
+          <svg className="w-14 h-14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 19.5v-15c0 0-6 3-6 9 0 4 6 6 6 6z" />
+             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 19.5v-15c0 0 6 3 6 9 0 4-6 6-6 6z" />
+             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 14l-3-3" />
+             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 14l3-3" />
+          </svg>
+       </div>
+    </div>
+    
+    <div className="text-center z-10">
+        <h1 className="text-3xl font-black tracking-tight text-slate-800 mb-2 font-sans">Family Tree</h1>
+        <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">By Alireza Labbaf</p>
+    </div>
+    
+    <div className="absolute bottom-10 text-[10px] text-slate-400 font-mono font-bold">
+        © {new Date().getFullYear()} All Rights Reserved
+    </div>
+  </div>
+);
 
 const App: React.FC = () => {
   // --- Custom Hooks ---
@@ -206,7 +234,7 @@ const App: React.FC = () => {
 
   const headerTitle = data.activeTab.title.startsWith('خاندان') ? `شجره نامه ${data.activeTab.title}` : `شجره نامه خاندان ${data.activeTab.title}`;
 
-  if (!data.isLoaded) return <div className="flex items-center justify-center h-screen bg-[#f8f5f2]">در حال بارگذاری...</div>;
+  if (!data.isLoaded) return <Preloader />;
 
   return (
     <AuthContext.Provider value={auth}>

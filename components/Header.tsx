@@ -68,6 +68,23 @@ const Header: React.FC<HeaderProps> = ({
 }) => {
   const { isAuthenticated } = useAuthContext();
   const [showAbout, setShowAbout] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(e => console.log(e));
+    } else {
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        }
+    }
+  };
 
   return (
     <div className="flex-none flex flex-col shadow-sm z-50">
@@ -143,7 +160,7 @@ const Header: React.FC<HeaderProps> = ({
           
           <div className="flex gap-1.5 md:gap-2 self-end md:self-center">
              
-             {/* Map Button (New) */}
+             {/* Map Button */}
              {onOpenMap && (
                  <button onClick={onOpenMap} className="p-2 md:p-3 bg-emerald-50 border-2 border-emerald-100 rounded-xl md:rounded-2xl text-emerald-600 hover:border-emerald-300 hover:text-emerald-800 transition-all shadow-sm" title="نقشه ارتباطات خاندان‌ها">
                     <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>
@@ -158,7 +175,6 @@ const Header: React.FC<HeaderProps> = ({
 
              {onOpenSettings && (
                 <button onClick={onOpenSettings} className="p-2 md:p-3 bg-slate-100 border-2 border-slate-200 rounded-xl md:rounded-2xl text-slate-600 hover:border-slate-400 hover:text-slate-800 transition-all shadow-sm" title="تنظیمات امنیتی و اخبار">
-                    {/* Fixed Gear Icon */}
                     <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15a3 3 0 100-6 3 3 0 000 6z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" /></svg>
                 </button>
              )}
@@ -168,6 +184,15 @@ const Header: React.FC<HeaderProps> = ({
                     <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                 </button>
              )}
+
+             {/* Fullscreen Button */}
+             <button onClick={toggleFullscreen} className="p-2 md:p-3 bg-white border-2 border-slate-100 rounded-xl md:rounded-2xl text-slate-600 hover:border-blue-500 hover:text-blue-600 transition-all shadow-sm" title={isFullscreen ? "خروج از تمام صفحه" : "تمام صفحه"}>
+                {isFullscreen ? (
+                    <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                ) : (
+                    <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+                )}
+             </button>
 
              {onExportSVG && (
                 <button onClick={onExportSVG} className="p-2 md:p-3 bg-white border-2 border-slate-100 rounded-xl md:rounded-2xl text-slate-600 hover:border-purple-500 hover:text-purple-600 transition-all shadow-sm" title="ذخیره وکتور (SVG) - کیفیت بالا">
@@ -194,7 +219,7 @@ const Header: React.FC<HeaderProps> = ({
               <h2 className="text-xl font-black text-slate-800">Alireza Labaf</h2>
               <div className="text-sm font-bold text-slate-600 space-y-2">
                  <p>توسعه دهنده: <span className="text-amber-600">علیرضا لباف</span></p>
-                 <p>نسخه برنامه: <span className="text-slate-400">v5.8 UI Polish</span></p>
+                 <p>نسخه برنامه: <span className="text-slate-400">v6.0 Final Polish</span></p>
                  <div className="border-t border-slate-100 pt-3 mt-3">
                     <p className="flex items-center justify-center gap-2" dir="ltr">
                         <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
