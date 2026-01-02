@@ -28,7 +28,7 @@ import AuthContext from './context/AuthContext';
 const APP_VERSION = "v6.1 Final Polish";
 
 const Preloader = () => (
-  <div className="flex flex-col items-center justify-center h-screen bg-[#f8f5f2] text-slate-800 space-y-6 relative overflow-hidden">
+  <div className="flex flex-col items-center justify-center h-[100dvh] bg-[#f8f5f2] text-slate-800 space-y-6 relative overflow-hidden">
     <div className="absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/graphy.png')] opacity-10"></div>
     
     <div className="relative w-32 h-32 z-10">
@@ -46,10 +46,10 @@ const Preloader = () => (
     
     <div className="text-center z-10">
         <h1 className="text-3xl font-black tracking-tight text-slate-800 mb-2 font-sans">Family Tree</h1>
-        <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">By Alireza Labbaf</p>
+        <p className="text-lg font-serif italic font-bold text-slate-500 tracking-wider mt-1">By Alireza Labbaf</p>
     </div>
     
-    <div className="absolute bottom-10 text-[10px] text-slate-400 font-mono font-bold">
+    <div className="absolute bottom-8 text-[10px] text-slate-400 font-mono font-bold">
         © {new Date().getFullYear()} All Rights Reserved
     </div>
   </div>

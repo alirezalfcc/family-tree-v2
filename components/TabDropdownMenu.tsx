@@ -24,6 +24,18 @@ const TabDropdownMenu: React.FC<TabDropdownMenuProps> = ({
   onDelete,
   showDelete
 }) => {
+  // Calculate adjusted left position to prevent overflow
+  const MENU_WIDTH = 180; // Estimated width of w-44 plus margin
+  const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1000;
+  
+  let leftPos = position.left;
+  // If menu goes off the right edge
+  if (leftPos + MENU_WIDTH > windowWidth) {
+      leftPos = windowWidth - MENU_WIDTH - 16; // 16px padding from edge
+  }
+  // Ensure it doesn't go off left edge
+  if (leftPos < 16) leftPos = 16;
+
   // Render via Portal to body to ensure it sits on top of everything (headers, sticky elements)
   return createPortal(
     <>
@@ -37,7 +49,7 @@ const TabDropdownMenu: React.FC<TabDropdownMenuProps> = ({
       {/* Menu Container */}
       <div 
           className="fixed bg-white rounded-xl shadow-2xl border border-slate-100 z-[9999] overflow-hidden animate-in fade-in zoom-in-95 text-slate-700 w-44"
-          style={{ top: position.top + 8, left: position.left }}
+          style={{ top: position.top + 8, left: leftPos }}
           onClick={(e) => e.stopPropagation()} // Prevent clicks inside menu from closing it
       >
           <button 
@@ -63,7 +75,7 @@ const TabDropdownMenu: React.FC<TabDropdownMenuProps> = ({
               onClick={() => { onManage(); onClose(); }}
               className="w-full text-right px-4 py-3 hover:bg-slate-50 text-xs font-bold border-b border-slate-50 flex items-center gap-2 transition-colors"
           >
-              <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+              <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
               مدیریت پیشرفته
           </button>
           
