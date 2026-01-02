@@ -6,7 +6,8 @@ const LS_KEYS = {
     SESSION: 'auth_session'
 };
 
-export const useAuth = (api: any, onDataRefresh: () => void) => {
+// Update signature: onDataRefresh can accept a user argument (or null)
+export const useAuth = (api: any, onDataRefresh: (user: { username: string; role: 'admin' | 'user' } | null) => void) => {
   const [currentUser, setCurrentUser] = useState<{ username: string; role: 'admin' | 'user' } | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [localUsers, setLocalUsers] = useState<any[]>([]); 
@@ -37,7 +38,8 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
       setIsAuthenticated(true);
       setCurrentUser(userObj);
       localStorage.setItem(LS_KEYS.SESSION, JSON.stringify(userObj));
-      setTimeout(() => onDataRefresh(), 0);
+      // Pass the *new* user state directly to callback to avoid stale closure issues
+      setTimeout(() => onDataRefresh(userObj), 0);
   };
 
   const handleLogin = async (username: string, pass: string) => {
@@ -69,7 +71,8 @@ export const useAuth = (api: any, onDataRefresh: () => void) => {
       setIsAuthenticated(false);
       setCurrentUser(null);
       localStorage.removeItem(LS_KEYS.SESSION);
-      setTimeout(() => onDataRefresh(), 0); 
+      // Explicitly pass NULL to indicate logout, fixing the need for manual refresh
+      setTimeout(() => onDataRefresh(null), 0); 
   };
 
   const executeBestEffortApi = async (fn: () => Promise<any>) => {

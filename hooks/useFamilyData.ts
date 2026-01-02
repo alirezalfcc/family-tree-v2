@@ -6,12 +6,13 @@ import {
   addChildToTree, 
   movePersonInTree, 
   removePersonFromTree,
-  findNodeById
+  findNodeById,
+  regenerateTreeIds
 } from '../utils/genealogy';
 import { useDataPersistence } from './useDataPersistence';
 
 export const useFamilyData = (api: any, auth: any) => {
-  const [tabs, setTabs] = useState<FamilyTab[]>([]);
+  const [tabs, setTabs] = useState<FamilyTab[]>([]); // 'tabs' now holds ALL data (public + private of everyone)
   const [activeTabId, setActiveTabId] = useState<string>('');
   const [marqueeText, setMarqueeText] = useState("خوش آمدید.");
   const [layoutConfig, setLayoutConfig] = useState<Record<string, any>>({ all: {}, male: {}, female: {} });
@@ -20,8 +21,36 @@ export const useFamilyData = (api: any, auth: any) => {
       api, auth, tabs, marqueeText, layoutConfig, setTabs, setActiveTabId, setMarqueeText, setLayoutConfig
   });
 
-  const visibleTabs = useMemo(() => tabs.filter(t => !t.deleted), [tabs]);
-  const recycledTabs = useMemo(() => tabs.filter(t => t.deleted), [tabs]);
+  // Security Filtering Layer
+  // This ensures users only SEE what they are allowed to see, but 'tabs' state preserves everything.
+  const visibleTabs = useMemo(() => {
+      return tabs.filter(t => {
+          // 1. Deleted tabs are hidden (moved to Recycle Bin)
+          if (t.deleted) return false;
+
+          // 2. Public tabs are visible to everyone
+          if (t.isPublic) return true;
+
+          // 3. Private tabs require authentication and permission
+          if (!auth.currentUser) return false;
+          
+          // Admin sees everything
+          if (auth.currentUser.role === 'admin') return true;
+          
+          // Owners see their own tabs
+          if (t.owner === auth.currentUser.username) return true;
+          
+          // Shared users see tabs shared with them
+          if (t.sharedWith?.includes(auth.currentUser.username)) return true;
+
+          return false;
+      });
+  }, [tabs, auth.currentUser]);
+
+  const recycledTabs = useMemo(() => {
+      if (!auth.currentUser || auth.currentUser.role !== 'admin') return [];
+      return tabs.filter(t => t.deleted);
+  }, [tabs, auth.currentUser]);
 
   const activeTab = useMemo(() => visibleTabs.find(t => t.id === activeTabId) || visibleTabs[0] || { id: 'dummy', title: 'خالی', data: { id: 'root', name: 'خالی', children: [] } }, [visibleTabs, activeTabId]);
 
@@ -56,6 +85,8 @@ export const useFamilyData = (api: any, auth: any) => {
   const handleDeleteTab = (id: string) => {
     const newTabs = tabs.map(t => t.id === id ? { ...t, deleted: true, deletedAt: Date.now() } : t);
     saveTabsToCloud(newTabs);
+    
+    // Switch active tab if the current one was deleted
     const remaining = newTabs.filter(t => !t.deleted && (t.isPublic || (auth.currentUser && (auth.currentUser.role === 'admin' || t.owner === auth.currentUser.username))));
     if (activeTabId === id) setActiveTabId(remaining[0]?.id || '');
   };
@@ -83,7 +114,19 @@ export const useFamilyData = (api: any, auth: any) => {
 
   const handleTransferTab = (tabId: string, newOwner: string) => {
       if (!auth.currentUser || auth.currentUser.role !== 'admin') return;
-      const newTabs = tabs.map(t => t.id === tabId ? { ...t, owner: newOwner } : t);
+      
+      const newTabs = tabs.map(t => {
+          if (t.id === tabId) {
+              const updated = { ...t, owner: newOwner };
+              // Cleanup: If the new owner was previously in the shared list, remove them
+              if (updated.sharedWith && updated.sharedWith.includes(newOwner)) {
+                  updated.sharedWith = updated.sharedWith.filter(u => u !== newOwner);
+              }
+              return updated;
+          }
+          return t;
+      });
+      
       saveTabsToCloud(newTabs);
       alert(`مالکیت تب با موفقیت به ${newOwner} منتقل شد.`);
   };
@@ -93,13 +136,17 @@ export const useFamilyData = (api: any, auth: any) => {
       const sourceTab = tabs.find(t => t.id === tabId);
       if (!sourceTab) return;
       
+      // Regenerate IDs to ensure the copy is independent
+      const copiedData = regenerateTreeIds(sourceTab.data);
+
       const newTab: FamilyTab = {
-          ...sourceTab,
           id: `tab-${Date.now()}`,
           title: `${sourceTab.title} (کپی)`,
+          data: copiedData,
           owner: targetUser,
           isPublic: false 
       };
+      
       const newTabs = [...tabs, newTab];
       saveTabsToCloud(newTabs);
       alert(`کپی شجره نامه برای کاربر ${targetUser} ایجاد شد.`);
@@ -142,8 +189,9 @@ export const useFamilyData = (api: any, auth: any) => {
           return;
       }
 
-      const newTabName = `خاندان ${nodeToExtract.name} ${nodeToExtract.surname || ''}`;
-      const clonedData = JSON.parse(JSON.stringify(nodeToExtract));
+      // Use regenerateTreeIds to ensure unique IDs in new tree
+      const clonedData = regenerateTreeIds(nodeToExtract);
+      const newTabName = `خاندان ${clonedData.name} ${clonedData.surname || ''}`;
       
       const newTab: FamilyTab = {
           id: `tab-${Date.now()}`,
@@ -202,6 +250,7 @@ export const useFamilyData = (api: any, auth: any) => {
   };
 
   const handleUpdateActiveTree = (newData: Person) => {
+    // Note: We update 'tabs' (allTabs), so we find the correct tab by ID regardless of view
     const newTabs = tabs.map(t => t.id === activeTabId ? { ...t, data: newData } : t);
     saveTabsToCloud(newTabs);
   };

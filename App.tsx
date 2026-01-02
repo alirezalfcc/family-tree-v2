@@ -25,7 +25,7 @@ import { useAuth } from './hooks/useAuth';
 import { useFamilyData } from './hooks/useFamilyData';
 import AuthContext from './context/AuthContext';
 
-const APP_VERSION = "v6.4 Live Sync";
+const APP_VERSION = "v6.5 Fixed";
 
 const Preloader = () => (
   <div className="flex flex-col items-center justify-center h-[100dvh] bg-[#f8f5f2] text-slate-800 space-y-6 relative overflow-hidden">
@@ -58,8 +58,10 @@ const Preloader = () => (
 const App: React.FC = () => {
   // --- Custom Hooks ---
   const api = useTreenetApi();
-  // We pass a refresh callback to Auth to trigger data re-fetch if needed
-  const auth = useAuth(api, () => data.fetchData(auth.currentUser));
+  
+  // Update: Allow passing explicit user state (or null for logout) to bypass closure staleness
+  const auth = useAuth(api, (user) => data.fetchData(user));
+  
   const data = useFamilyData(api, auth);
 
   // --- UI States ---

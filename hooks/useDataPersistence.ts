@@ -1,16 +1,9 @@
 
 import React, { useState, useCallback } from 'react';
 import { FamilyTab } from '../types';
-import { 
-  updatePersonInTree, 
-  addChildToTree, 
-  movePersonInTree, 
-  removePersonFromTree,
-  findNodeById
-} from '../utils/genealogy';
 
 const LS_KEYS = {
-    DATA: 'family_tree_data_v6_4', // Bumped key to force fresh seed from data.ts
+    DATA: 'family_tree_data_v6_4', // Key preserved
     SESSION: 'auth_session'
 };
 
@@ -59,46 +52,25 @@ export const useDataPersistence = ({
         if (data.settings?.marquee) setMarqueeText(data.settings.marquee);
         if (data.layoutConfig) setLayoutConfig(data.layoutConfig);
 
-        let effectiveUser = userOverride;
-        if (effectiveUser === undefined) {
-           if (auth.currentUser) {
-               effectiveUser = auth.currentUser;
-           } else {
-               const session = localStorage.getItem(LS_KEYS.SESSION);
-               if (session) {
-                   effectiveUser = JSON.parse(session);
-                   if (!auth.currentUser) {
-                       auth.setCurrentUser(effectiveUser);
-                       auth.setIsAuthenticated(true);
-                   }
-               } else {
-                   effectiveUser = null;
-               }
-           }
-        }
-
-        const accessibleTabs = loadedTabs.filter(t => {
-            if (t.deleted) {
-                return effectiveUser && effectiveUser.role === 'admin';
-            }
-            if (!t.isPublic) {
-                if (effectiveUser) {
-                    return effectiveUser.role === 'admin' || 
-                           t.owner === effectiveUser.username || 
-                           t.sharedWith?.includes(effectiveUser.username);
-                }
-                return false; 
-            }
-            return true; 
-        });
-
-        setTabs(accessibleTabs);
+        // IMPORTANT FIX: 
+        // We do NOT filter tabs here based on access anymore. 
+        // We load ALL tabs into state to ensure that when a user saves data, 
+        // they don't accidentally delete other users' private tabs that were filtered out.
+        // Visibility filtering is now handled in useFamilyData -> visibleTabs.
+        setTabs(loadedTabs);
         
-        const nonDeleted = accessibleTabs.filter(t => !t.deleted);
-        if (nonDeleted.length > 0) {
-            setActiveTabId(prev => nonDeleted.some(t => t.id === prev) ? prev : nonDeleted[0].id);
+        // However, for setting the *initial active tab*, we should pick one that is likely visible/public
+        // We make a best guess here, checking for public tabs first.
+        const candidates = loadedTabs.filter(t => !t.deleted);
+        const publicTab = candidates.find(t => t.isPublic);
+        
+        if (publicTab) {
+             setActiveTabId(prev => candidates.some(t => t.id === prev) ? prev : publicTab.id);
+        } else if (candidates.length > 0) {
+             setActiveTabId(prev => candidates.some(t => t.id === prev) ? prev : candidates[0].id);
         }
-    }, [auth, setTabs, setActiveTabId, setMarqueeText, setLayoutConfig]);
+
+    }, [setTabs, setActiveTabId, setMarqueeText, setLayoutConfig]);
 
     const fetchData = useCallback(async (userOverride?: { username: string; role: 'admin' | 'user' } | null) => {
         try {
@@ -116,8 +88,6 @@ export const useDataPersistence = ({
             if (!data) throw new Error("Fetching local");
 
             // Check if API returned effectively empty data
-            // This logic ensures that if the server DB is empty (e.g. fresh deployment),
-            // the default data (data.ts) is loaded as a seed, preventing the "disappearing data" issue.
             let isEmpty = false;
             if (!data.familyTabs && !data.id && Array.isArray(data) && data.length === 0) isEmpty = true;
             if (data.familyTabs && data.familyTabs.length === 0) isEmpty = true;
@@ -140,8 +110,6 @@ export const useDataPersistence = ({
                  if (stillEmpty) {
                      try {
                         const module: any = await import('../data');
-                        
-                        // New Logic: Support full backup structure in data.ts
                         if (module.defaultFamilyTabs) {
                             data = {
                                 familyTabs: module.defaultFamilyTabs,
@@ -149,7 +117,6 @@ export const useDataPersistence = ({
                                 settings: module.defaultSettings
                             };
                         } else {
-                            // Legacy fallback
                             data = { 
                                 familyTabs: [{ 
                                     id: 'default', 
@@ -177,7 +144,6 @@ export const useDataPersistence = ({
                 const parsed = JSON.parse(localData);
                 processFetchedData({ familyTabs: parsed }, userOverride);
             } else {
-                // Lazy Load Default Data
                 try {
                     const module: any = await import('../data');
                     if (module.defaultFamilyTabs) {
@@ -211,8 +177,6 @@ export const useDataPersistence = ({
       localStorage.setItem(LS_KEYS.DATA, JSON.stringify(newTabs));
       if (!api.isOfflineMode) {
         api.setIsSaving(true);
-        
-        // Use ETag for Optimistic Locking
         const headers = api.dataETag ? { 'If-Match': api.dataETag } : {};
         
         api.apiCall('familyTabs', 'PUT', newTabs, 0, false, headers)

@@ -32,6 +32,35 @@ export const findNodeById = (root: Person, id: string): Person | null => {
   return null;
 };
 
+/**
+ * بازسازی شناسه‌های کل درخت برای کپی کردن
+ * این تابع یک کپی عمیق از درخت ایجاد کرده و تمام IDها را تغییر می‌دهد
+ * تا از تداخل در هنگام کپی کردن خاندان جلوگیری شود.
+ */
+export const regenerateTreeIds = (node: Person): Person => {
+    const newId = `p-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // کپی کردن شیء (بدون children فعلا)
+    const newNode: Person = { ...node, id: newId };
+    
+    // پاک کردن ارجاعات همسری (چون همسر ممکن است در این درخت نباشد یا ID اش تغییر کند)
+    // در نسخه پیشرفته می‌توان مپینگ ID قدیم به جدید ساخت، اما برای کپی ساده، قطع ارتباط امن‌تر است
+    delete newNode.spouseId;
+    delete newNode.secondSpouseId;
+    
+    // بازسازی فرزندان به صورت بازگشتی
+    if (node.children && node.children.length > 0) {
+        newNode.children = node.children.map(child => regenerateTreeIds(child));
+    } else {
+        newNode.children = [];
+    }
+    
+    // پاک کردن فرزندان مشترک (Shared Children) چون به ID های قدیم اشاره دارند
+    newNode.sharedChildren = [];
+
+    return newNode;
+};
+
 export const flattenTree = (
   node: Person,
   depth: number = 0,
